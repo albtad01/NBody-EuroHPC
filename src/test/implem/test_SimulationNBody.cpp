@@ -46,7 +46,7 @@ void test_nbody_cpu_optim(const size_t n, const float soft, const float dt, cons
 
 TEST_CASE("n-body - gpu+optim", "[dmb]")
 {
-    // Random configuration
+    // ===================================== Random configuration ============================================
     SECTION("fp32 - n=13 - i=1 - random") { test_nbody_cpu_optim(13, 2e+08, 3600, 1, "random", 1e-3); }
     SECTION("fp32 - n=13 - i=100 - random") { test_nbody_cpu_optim(13, 2e+08, 3600, 100, "random", 5e-3); }
     SECTION("fp32 - n=16 - i=1 - random") { test_nbody_cpu_optim(16, 2e+08, 3600, 1, "random", 1e-3); }
@@ -54,13 +54,14 @@ TEST_CASE("n-body - gpu+optim", "[dmb]")
     SECTION("fp32 - n=2048 - i=1 - random") { test_nbody_cpu_optim(2048, 2e+08, 3600, 1, "random", 1e-3); }
     SECTION("fp32 - n=2049 - i=3 - random") { test_nbody_cpu_optim(2049, 2e+08, 3600, 3, "random", 1e-3); }
     SECTION("fp32 - n=4096 - i=10 - random") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "random", 1e-3); }
+
     // Harder tests: more bodies, more iterations, more accuracy
     SECTION("fp32 - n=4096 - i=100 - random") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "random", 1e-5); }
     SECTION("fp32 - n=4096 - i=100 - random") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "random", 1e-6); }
-    SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 5e-7); }
+    SECTION("fp32 - n=4096 - i=100 - random") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "random", 5e-7); } 
     SECTION("fp32 - n=4096 - i=100 - random") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "random", 1e-7); }
 
-    // Galaxy configuration
+    // ===================================== Galaxy configuration ============================================
     SECTION("fp32 - n=13 - i=1 - galaxy") { test_nbody_cpu_optim(13, 2e+08, 3600, 1, "galaxy", 1e-1); }
     SECTION("fp32 - n=13 - i=30 - galaxy") { test_nbody_cpu_optim(13, 2e+08, 3600, 30, "galaxy", 1e-1); }
     SECTION("fp32 - n=16 - i=1 - galaxy") { test_nbody_cpu_optim(16, 2e+08, 3600, 1, "galaxy", 1e-2); }
@@ -68,9 +69,10 @@ TEST_CASE("n-body - gpu+optim", "[dmb]")
     SECTION("fp32 - n=2048 - i=4 - galaxy") { test_nbody_cpu_optim(2048, 2e+08, 3600, 4, "galaxy", 1e-1); }
     SECTION("fp32 - n=2049 - i=3 - galaxy") { test_nbody_cpu_optim(2049, 2e+08, 3600, 3, "galaxy", 1e-1); }
     SECTION("fp32 - n=4096 - i=10 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 1e-3); }
+
     // Harder tests: more bodies, more iterations, more accuracy
     SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 1e-5); }
     SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 1e-6); }
-    SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 5e-7); }
+    SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 5e-7); } // 16.01.2026 - CUDATile fails from here onwards
     SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_cpu_optim(4096, 2e+08, 3600, 1, "galaxy", 1e-7); }
 }

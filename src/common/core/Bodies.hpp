@@ -79,8 +79,8 @@ template <typename T> struct accAoS_t {
 template <typename T> class Bodies {
   protected:
     unsigned long n;                   /*!< Number of bodies. */
-    dataSoA_t<T> dataSoA;              /*!< Structure of arrays of bodies data. */
-    std::vector<dataAoS_t<T>> dataAoS; /*!< Array of structures of bodies data. */
+    mutable dataSoA_t<T> dataSoA;              /*!< Structure of arrays of bodies data. */
+    mutable std::vector<dataAoS_t<T>> dataAoS; /*!< Array of structures of bodies data. */
     unsigned short padding;            /*!< Number of fictional bodies to fill the last vector. */
     float allocatedBytes;              /*!< Number of allocated bytes. */
 
@@ -122,14 +122,14 @@ template <typename T> class Bodies {
      *
      *  \return The characteristics of the bodies in SoA form.
      */
-    const dataSoA_t<T> &getDataSoA() const;
+    virtual const dataSoA_t<T> &getDataSoA() const;
 
     /*!
      *  \brief AoS data getter.
      *
      *  \return The characteristics of the bodies in AoS form.
      */
-    const std::vector<dataAoS_t<T>> &getDataAoS() const;
+    virtual const std::vector<dataAoS_t<T>> &getDataAoS() const;
 
     /*!
      *  \brief Allocated bytes getter.
@@ -146,7 +146,7 @@ template <typename T> class Bodies {
      *
      *  Update positions and velocities, this is the time integration scheme to apply after each iteration.
      */
-    void updatePositionsAndVelocities(const accSoA_t<T> &accelerations, T &dt);
+    virtual void updatePositionsAndVelocities(const accSoA_t<T> &accelerations, T &dt);
 
     /*!
      *  \brief Update positions and velocities with time integration.
@@ -156,7 +156,7 @@ template <typename T> class Bodies {
      *
      *  Update positions and velocities, this is the time integration scheme to apply after each iteration.
      */
-    void updatePositionsAndVelocities(const std::vector<accAoS_t<T>> &accelerations, T &dt);
+    virtual void updatePositionsAndVelocities(const std::vector<accAoS_t<T>> &accelerations, T &dt);
 
     /*!
      *  \brief Initialized bodies like in a Galaxy with random.
