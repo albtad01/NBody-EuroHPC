@@ -1,0 +1,48 @@
+## Test config: datatype=fp32, timestep=3600s, softening=2e+08, 
+### az4-n4090 (node 0)
+    n° body   |             1000                  |                  30k               |
+----------------------------------------------------------------------------------------
+               |     FPS      |       speedup     |        FPS       |      speedup    |
+----------------------------------------------------------------------------------------
+- cpu+naive:   | 11.9 - 12.5  |        /          |too low (0.01?)   |
+- cpu+optim:   | 85.7 - 88.6  |  in (6.875, 7.37) |        0.1       |       10 ?
+- gpu+base:    |     3300     |        275        |        110       |       11000? -> 1100 over cpu+optim
+- gpu+tile:    |     4400     |        366        |        293       |       29300? -> 2930 over cpu+optim
+
+TODO: try to implement the fast inverse square root
+TODO: qx,qy,qz are updated serially... what a waste of time!
+TODO: accelerations and qz,qy,qz have to travel through data bus... what a waste of time!
+    - if computing locally and binding to OpenGL buffer
+TODO: use nsys prof to do profiling and see if it is computation bound or communication bound
+
+
+# OPTIMIZATION REPORT
+## SimulationNBodyCpuOptim
+    Main speedup due to: (in order of implementation)
+        1. moving from std::pow(var, 2) calls to var * var -> no function call overhead 
+        2. accessing d.qx[iBody], d.qy[iBody], d.qz[iBody] outside jBody loop -> less memory access overhead
+        3. algorithm complexity improvement:  -> ~ 15 FPS gain
+            - from const1 * N^2 
+            - to const2 * (N^2 - sum_{i=1}^{N} i) = const2 * (N^2 - N^2 / 2 - N/2) = const2 * (N^2/2 - N/2)
+            - obtained by iterating once per each couple (i,j)
+            - const2 > const1 because single loop contains more flops and memory accesses now (calculating aj and
+                updating accelerations also for other planet). However const1 before was reduced to 18, now const2 is 21
+                Not much of a worsening.
+        - moving from ... / std::pow(rijSquared + softSquared, 3.f / 2.f) to  -> ~ 20 FPS gain
+            const float partial_denom std::sqrt(rijSquared + softSquared)
+                      ... / (partial_denom * partial_denom * partial_denom)
+            - Previous flops were not calculated correctly... std::pow was considered to cost 1 flop... fake!
+                - Effective number of flops per loop now is 32, before was much higher
+    Minor improvements
+        - softSquared is not calculated at each iteration -> 1 flop less
+    Moving from Array of Structures (AoS) to Structure of Arrays (SoA) didn't change anything -> useful though for SIMD
+
+## SimulationNBodyCpuBase
+    Implemented what done sequentiall in SimultionNBodyCpuOptim but on CUDA
+    Only difference is that now algorithm is back to const1*N^2 complexity for simplicity of parallelism
+
+## SimulationNBodyCpuTile
+    Added tiling. Given blockDim.x = 1024, each tile is composed by 3 * blockDim.x bodies.
+    So in the shared memory we save mass, qx, qy and qz. 
+    Furthermore, a big improvement is obtained by using rsqrtf to compute 1/sqrt(rijSquared+softSquared), which
+    then is raised to the third.

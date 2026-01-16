@@ -1,0 +1,42 @@
+ ==========  cudaDeviceGetProperties ============  
+
+
+Device 0: "NVIDIA GeForce RTX 4090"
+  GPU Clock Rate (MHz):                          2610
+  Memory Clock Rate (MHz):                       10501
+  Memory Bus Width (bits):                       384
+  Peak Memory Bandwidth (GB/s):                  1008.10
+  CUDA Cores/SM:                                 128
+  CUDA Cores:                                    16384
+  Total amount of global memory:                 24 GB
+  Total amount of shared memory per block:       48 kB
+  Total number of registers available per block: 65536
+  Warp size:                                     32
+  Maximum number of threads per block:           1024
+  Max dimension size of a thread block (x,y,z): (1024, 1024, 64)
+  Max dimension size of a grid size    (x,y,z): (2147483647, 65535, 65535)
+
+
+
+ ==========  cudaDeviceGetAttribute ============  
+
+  Max number of threads per block:              1024
+  Max block dimension X:                        1024
+  Max block dimension Y:                        1024
+  Max block dimension Z:                        64
+  Max grid dimension X:                         2147483647
+  Max grid dimension Y:                         65535
+  Max grid dimension Z:                         65535
+  Max shared memory per block:                  49152
+  Warp size:                                    32
+  Peak clock frequency in kilohertz:            2610000
+  Peak memory clock frequency in kilohertz:     10501000
+  Global memory bus width in bits:              384
+  Size of L2 cache in bytes:                    75497472
+  Maximum resident threads per SM:              1536
+  Major compute capability version number:      8
+  Minor compute capability version number:      9
+  Max shared memory per SM in bytes:            102400
+  Max number of 32-bit registers per SM:        65536
+  Max per block shmem size on the device:       101376
+  Max thread blocks that can reside on a SM:    24
