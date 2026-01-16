@@ -1,3 +1,6 @@
+#ifndef CUDA_BODIES_HPP_
+#define CUDA_BODIES_HPP_
+
 #include "core/Bodies.hpp"
 
 template <typename T> struct devDataSoA_t {
@@ -70,3 +73,4 @@ template <typename T> class CUDABodies : public Bodies<T> {
 
     void memcpyBuffersOnDevice();
 };
+#endif

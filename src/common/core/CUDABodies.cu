@@ -63,9 +63,9 @@ const dataSoA_t<T>& CUDABodies<T>::getDataSoA() const {
     cudaMemcpy(Bodies<T>::dataSoA.vx.data(), this->devDataSoA.vx, (this->n + this->padding)*sizeof(T), 
                cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), 
+    cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.vy, (this->n + this->padding)*sizeof(T), 
                cudaMemcpyDeviceToHost);
-    cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), 
+    cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.vz, (this->n + this->padding)*sizeof(T), 
                cudaMemcpyDeviceToHost);
 
     return this->dataSoA;
@@ -83,10 +83,11 @@ const std::vector<dataAoS_t<T>>& CUDABodies<T>::getDataAoS() const {
 // ========================== UPDATE POSITIONS & VELOCITIES =============================
 // ======================================================================================
 template <typename T>
-__global__ void devUpdatePositionsAndVelocities(const devAccSoA_t<T> devAccelerations, T &dt, devDataSoA_t<T> devDataSoA) {
+__global__ void devUpdatePositionsAndVelocities(const devAccSoA_t<T> devAccelerations, T dt, devDataSoA_t<T> devDataSoA, unsigned long n) {
     unsigned long iBody = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (iBody >= n) return;
 
-    // flops = 18
     T aixDt = devAccelerations.ax[iBody] * dt;
     T aiyDt = devAccelerations.ay[iBody] * dt;
     T aizSt = devAccelerations.az[iBody] * dt;
@@ -103,24 +104,12 @@ __global__ void devUpdatePositionsAndVelocities(const devAccSoA_t<T> devAccelera
     T viyNew = viy + aiyDt;
     T vizNew = viz + aizSt;
 
-    // SoA
-    // devDataSoA.m[iBody] = mi;        SINCE THEY DO NOT CHANGE!
-    // devDataSoA.r[iBody] = ri;
     devDataSoA.qx[iBody] = qixNew;
     devDataSoA.qy[iBody] = qiyNew;
     devDataSoA.qz[iBody] = qizNew;
     devDataSoA.vx[iBody] = vixNew;
     devDataSoA.vy[iBody] = viyNew;
     devDataSoA.vz[iBody] = vizNew;
-    // AoS
-    // this->dataAoS[iBody].m = mi;
-    // this->dataAoS[iBody].r = ri;
-    // this->dataAoS[iBody].qx = qix;
-    // this->dataAoS[iBody].qy = qiy;
-    // this->dataAoS[iBody].qz = qiz;
-    // this->dataAoS[iBody].vx = vix;
-    // this->dataAoS[iBody].vy = viy;
-    // this->dataAoS[iBody].vz = viz;
 }
 
 template <typename T>
@@ -131,14 +120,26 @@ void CUDABodies<T>::updatePositionsAndVelocitiesOnDevice(const devAccSoA_t<T> &d
     if ( blocks == 1 ) {
         threads = this->n;
     }
-    devUpdatePositionsAndVelocities<T><<<blocks, threads>>>(devAccelerations, dt, this->devDataSoA);
+    devUpdatePositionsAndVelocities<T><<<blocks, threads>>>(devAccelerations, dt, this->devDataSoA, this->n);
     cudaDeviceSynchronize();
 }
 
 template <typename T>
 void CUDABodies<T>::updatePositionsAndVelocities(const accSoA_t<T> &accelerations, T &dt) 
 {
-    printf("\n\n updatePositionsAndVelocities NOT IMPLEMENTED");
+    devAccSoA_t<T> devAccelerations;
+    cudaMalloc(&devAccelerations.ax, (Bodies<T>::n + this->padding) * sizeof(T));
+    cudaMalloc(&devAccelerations.ay, (Bodies<T>::n + this->padding) * sizeof(T));
+    cudaMalloc(&devAccelerations.az, (Bodies<T>::n + this->padding) * sizeof(T));
+    cudaMemcpy(devAccelerations.ax, accelerations.ax.data(), Bodies<T>::n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(devAccelerations.ay, accelerations.ay.data(), Bodies<T>::n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(devAccelerations.az, accelerations.az.data(), Bodies<T>::n * sizeof(T), cudaMemcpyHostToDevice);
+
+    this->updatePositionsAndVelocitiesOnDevice(devAccelerations, dt);
+
+    cudaFree(devAccelerations.ax);
+    cudaFree(devAccelerations.ay);
+    cudaFree(devAccelerations.az);
 }
 
 template <typename T>
