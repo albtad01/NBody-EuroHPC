@@ -21,6 +21,7 @@
 #include "implem/SimulationNBodyNaive.hpp"
 // #include "implem/SimulationNBodyCUDABase.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
+#include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 // #include "implem/SimulationNBodyCpuOptim.hpp"
 
 /* global variables */
@@ -81,6 +82,7 @@ void argsReader(int argc, char **argv)
                     //  "\t\t\t - \"cpu+optim\"\n"
                     //  "\t\t\t - \"gpu+base\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
+                     "\t\t\t - \"gpu+tile+full\"\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -184,11 +186,11 @@ std::string strDate(float timestamp)
  *
  * \return A fresh allocated simulation.
  */
-SimulationNBodyInterface *createImplem()
+SimulationNBodyInterface<float> *createImplem()
 {
-    SimulationNBodyInterface *simu = nullptr;
+    SimulationNBodyInterface<float> *simu = nullptr;
     if (ImplTag == "cpu+naive") {
-        simu = new SimulationNBodyNaive(NBodies, BodiesScheme, Softening);
+        simu = new SimulationNBodyNaive<float>(NBodies, BodiesScheme, Softening);
     }
     // else if (ImplTag == "cpu+optim") {
     //     simu = new SimulationNBodyCpuOptim(NBodies, BodiesScheme, Softening);
@@ -199,6 +201,9 @@ SimulationNBodyInterface *createImplem()
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile(NBodies, BodiesScheme, Softening);
     }
+    else if (ImplTag == "gpu+tile+full") {
+        simu = new SimulationNBodyCUDATileFullDevice(NBodies, BodiesScheme, Softening);
+    }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
         exit(-1);
@@ -206,7 +211,7 @@ SimulationNBodyInterface *createImplem()
     return simu;
 }
 
-SpheresVisu *createVisu(SimulationNBodyInterface *simu)
+SpheresVisu *createVisu(SimulationNBodyInterface<float> *simu)
 {
     SpheresVisu *visu;
 
@@ -249,7 +254,7 @@ int main(int argc, char **argv)
     argsReader(argc, argv);
 
     // create the n-body simulation
-    SimulationNBodyInterface *simu = createImplem();
+    SimulationNBodyInterface<float> *simu = createImplem();
     NBodies = simu->getBodies().getN();
 
     // get MB used for this simulation

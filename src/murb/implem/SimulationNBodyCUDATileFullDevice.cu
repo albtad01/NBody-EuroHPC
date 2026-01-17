@@ -5,9 +5,9 @@
 #include <limits>
 #include <string>
 
-#include "SimulationNBodyCUDATile.hpp"
+#include "SimulationNBodyCUDATileFullDevice.hpp"
 
-SimulationNBodyCUDATile::SimulationNBodyCUDATile(const unsigned long nBodies, const std::string &scheme, const float soft,
+SimulationNBodyCUDATileFullDevice::SimulationNBodyCUDATileFullDevice(const unsigned long nBodies, const std::string &scheme, const float soft,
                                            const unsigned long randInit)
     : SimulationNBodyInterface<float>(nBodies, scheme, soft, randInit), softSquared{soft*soft}
 {
@@ -24,7 +24,7 @@ SimulationNBodyCUDATile::SimulationNBodyCUDATile(const unsigned long nBodies, co
     cudaMalloc(&this->devAccelerations, this->getBodies().getN()*sizeof(accAoS_t<float>));
 }
 
-__global__ void devInitIteration(accAoS_t<float>* devAccelerations,
+__global__ void devInitIterationTileFullDevice(accAoS_t<float>* devAccelerations,
                                  int n_bodies) {
     unsigned long iBody = blockIdx.x * blockDim.x + threadIdx.x;
     if ( iBody <= n_bodies ) {
@@ -34,7 +34,7 @@ __global__ void devInitIteration(accAoS_t<float>* devAccelerations,
     }
 }
 
-void SimulationNBodyCUDATile::initIteration()
+void SimulationNBodyCUDATileFullDevice::initIteration()
 {
     int threads = 1024;
     int blocks = (this->getBodies().getN() + threads - 1) / threads;  
@@ -42,7 +42,7 @@ void SimulationNBodyCUDATile::initIteration()
         blocks = 1;
         threads = this->getBodies().getN();
     }
-    devInitIteration<<<blocks, threads>>>(devAccelerations, this->getBodies().getN());
+    devInitIterationTileFullDevice<<<blocks, threads>>>(devAccelerations, this->getBodies().getN());
     for (unsigned long iBody = 0; iBody < this->getBodies().getN(); iBody++) {
         this->accelerations[iBody].ax = 0.f;
         this->accelerations[iBody].ay = 0.f;
@@ -51,7 +51,7 @@ void SimulationNBodyCUDATile::initIteration()
     cudaDeviceSynchronize();
 }
 
-void SimulationNBodyCUDATile::computeOneIteration()
+void SimulationNBodyCUDATileFullDevice::computeOneIteration()
 {
     this->initIteration();
     this->computeBodiesAcceleration();
@@ -59,7 +59,7 @@ void SimulationNBodyCUDATile::computeOneIteration()
     this->bodies.updatePositionsAndVelocities(this->accelerations, this->dt);
 }
 
-__global__ void devComputeBodiesAccelerationTile(
+__global__ void devComputeBodiesAccelerationTileFullDevice(
     accAoS_t<float>* devAccelerations,
     float* devM,
     float* devQx,
@@ -89,7 +89,7 @@ __global__ void devComputeBodiesAccelerationTile(
 
     for (int base_idx = 0; base_idx < n_bodies; base_idx += TILE_SIZE) {
 
-        // Tile copy
+        // TileFullDevice copy
         for (int i = 0; i < N; i++) {
             sh_idx = threadIdx.x + i * 1024;
             gg_idx = base_idx + sh_idx;
@@ -142,7 +142,7 @@ __global__ void devComputeBodiesAccelerationTile(
     }
 }
 
-void SimulationNBodyCUDATile::computeBodiesAcceleration()
+void SimulationNBodyCUDATileFullDevice::computeBodiesAcceleration()
 {
     int threads = 1024;
     int blocks = (this->getBodies().getN() + threads - 1) / threads;  
@@ -155,7 +155,7 @@ void SimulationNBodyCUDATile::computeBodiesAcceleration()
     cudaMemcpy(this->devQy, d.qy.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(this->devQz, d.qz.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
 
-    devComputeBodiesAccelerationTile<<<blocks, threads>>>(
+    devComputeBodiesAccelerationTileFullDevice<<<blocks, threads>>>(
                                             this->devAccelerations,
                                             this->devM,this->devQx,this->devQy,this->devQz,
                                             this->getBodies().getN(), this->G, this->softSquared);
@@ -165,7 +165,7 @@ void SimulationNBodyCUDATile::computeBodiesAcceleration()
                this->getBodies().getN() * sizeof(accAoS_t<float>), cudaMemcpyDeviceToHost);
 }
 
-SimulationNBodyCUDATile::~SimulationNBodyCUDATile() {
+SimulationNBodyCUDATileFullDevice::~SimulationNBodyCUDATileFullDevice() {
     cudaFree(devM);
     cudaFree(devQx);
     cudaFree(devQy);

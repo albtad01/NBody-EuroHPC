@@ -5,12 +5,13 @@
 
 #include "core/SimulationNBodyInterface.hpp"
 
-class SimulationNBodyNaive : public SimulationNBodyInterface {
+template <typename T>
+class SimulationNBodyNaive : public SimulationNBodyInterface<T> {
   protected:
-    std::vector<accAoS_t<float>> accelerations; /*!< Array of body acceleration structures. */
+    std::vector<accAoS_t<T>> accelerations; /*!< Array of body acceleration structures. */
 
   public:
-    SimulationNBodyNaive(const unsigned long nBodies, const std::string &scheme = "galaxy", const float soft = 0.035f,
+    SimulationNBodyNaive(const unsigned long nBodies, const std::string &scheme = "galaxy", const T soft = 0.035f,
                          const unsigned long randInit = 0);
     virtual ~SimulationNBodyNaive() = default;
     virtual void computeOneIteration();
