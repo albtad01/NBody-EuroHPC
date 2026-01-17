@@ -7,24 +7,26 @@
 
 #include "SimulationNBodyCUDATileFullDevice.hpp"
 
-SimulationNBodyCUDATileFullDevice::SimulationNBodyCUDATileFullDevice(const unsigned long nBodies, const std::string &scheme, const float soft,
+template <typename T>
+SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(const unsigned long nBodies, const std::string &scheme, const T soft,
                                            const unsigned long randInit)
-    : SimulationNBodyInterface<float>(nBodies, scheme, soft, randInit), softSquared{soft*soft}
+    : SimulationNBodyInterface<T>(nBodies, scheme, soft, randInit), softSquared{soft*soft}
 {
-    this->flopsPerIte = 20.f * (float)this->getBodies().getN() * (float)this->getBodies().getN();
+    this->flopsPerIte = 20.f * (T)this->getBodies().getN() * (T)this->getBodies().getN();
     this->accelerations.resize(this->getBodies().getN());
 
-    const dataSoA_t<float> &d = this->getBodies().getDataSoA();
-    cudaMalloc(&this->devM, this->getBodies().getN()*sizeof(float));
-    cudaMemcpy(this->devM, d.m.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
+    const dataSoA_t<T> &d = this->getBodies().getDataSoA();
+    cudaMalloc(&this->devM, this->getBodies().getN()*sizeof(T));
+    cudaMemcpy(this->devM, d.m.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
 
-    cudaMalloc(&this->devQx, this->getBodies().getN()*sizeof(float));
-    cudaMalloc(&this->devQy, this->getBodies().getN()*sizeof(float));
-    cudaMalloc(&this->devQz, this->getBodies().getN()*sizeof(float));
-    cudaMalloc(&this->devAccelerations, this->getBodies().getN()*sizeof(accAoS_t<float>));
+    cudaMalloc(&this->devQx, this->getBodies().getN()*sizeof(T));
+    cudaMalloc(&this->devQy, this->getBodies().getN()*sizeof(T));
+    cudaMalloc(&this->devQz, this->getBodies().getN()*sizeof(T));
+    cudaMalloc(&this->devAccelerations, this->getBodies().getN()*sizeof(accAoS_t<T>));
 }
 
-__global__ void devInitIterationTileFullDevice(accAoS_t<float>* devAccelerations,
+template <typename T>
+__global__ void devInitIterationTileFullDevice(accAoS_t<T>* devAccelerations,
                                  int n_bodies) {
     unsigned long iBody = blockIdx.x * blockDim.x + threadIdx.x;
     if ( iBody <= n_bodies ) {
@@ -34,7 +36,8 @@ __global__ void devInitIterationTileFullDevice(accAoS_t<float>* devAccelerations
     }
 }
 
-void SimulationNBodyCUDATileFullDevice::initIteration()
+template <typename T>
+void SimulationNBodyCUDATileFullDevice<T>::initIteration()
 {
     int threads = 1024;
     int blocks = (this->getBodies().getN() + threads - 1) / threads;  
@@ -51,7 +54,8 @@ void SimulationNBodyCUDATileFullDevice::initIteration()
     cudaDeviceSynchronize();
 }
 
-void SimulationNBodyCUDATileFullDevice::computeOneIteration()
+template <typename T>
+void SimulationNBodyCUDATileFullDevice<T>::computeOneIteration()
 {
     this->initIteration();
     this->computeBodiesAcceleration();
@@ -59,30 +63,31 @@ void SimulationNBodyCUDATileFullDevice::computeOneIteration()
     this->bodies.updatePositionsAndVelocities(this->accelerations, this->dt);
 }
 
+template <typename T>
 __global__ void devComputeBodiesAccelerationTileFullDevice(
-    accAoS_t<float>* devAccelerations,
-    float* devM,
-    float* devQx,
-    float* devQy,
-    float* devQz,
+    accAoS_t<T>* devAccelerations,
+    T* devM,
+    T* devQx,
+    T* devQy,
+    T* devQz,
     int n_bodies,
-    const float G,
-    const float softSquared
+    const T G,
+    const T softSquared
 ) {
     // Allocating maximum amount that can fit in shared memory
     constexpr int N = 1;
     constexpr int TILE_SIZE = N * 1024;
 
-    __shared__ float SHm[TILE_SIZE];
-    __shared__ float SHqx[TILE_SIZE];
-    __shared__ float SHqy[TILE_SIZE];
-    __shared__ float SHqz[TILE_SIZE];
+    __shared__ T SHm[TILE_SIZE];
+    __shared__ T SHqx[TILE_SIZE];
+    __shared__ T SHqy[TILE_SIZE];
+    __shared__ T SHqz[TILE_SIZE];
 
     unsigned long iBody = blockIdx.x * blockDim.x + threadIdx.x;
 
-    const float rix = (iBody < n_bodies) ? devQx[iBody] : 0.0f;
-    const float riy = (iBody < n_bodies) ? devQy[iBody] : 0.0f;
-    const float riz = (iBody < n_bodies) ? devQz[iBody] : 0.0f;
+    const T rix = (iBody < n_bodies) ? devQx[iBody] : 0.0f;
+    const T riy = (iBody < n_bodies) ? devQy[iBody] : 0.0f;
+    const T riz = (iBody < n_bodies) ? devQz[iBody] : 0.0f;
 
     int sh_idx;
     int gg_idx;
@@ -113,23 +118,23 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
             int tile_end = min(TILE_SIZE, n_bodies - base_idx);
 
             for (int jBody = 0; jBody < tile_end; jBody++) {
-                const float rijx = SHqx[jBody] - rix; // 1 flop
-                const float rijy = SHqy[jBody] - riy; // 1 flop
-                const float rijz = SHqz[jBody] - riz; // 1 flop
+                const T rijx = SHqx[jBody] - rix; // 1 flop
+                const T rijy = SHqy[jBody] - riy; // 1 flop
+                const T rijz = SHqz[jBody] - riz; // 1 flop
 
                 // compute the || rij ||² distance between body i and body j
-                const float rijSquared =
+                const T rijSquared =
                     rijx * rijx + rijy * rijy + rijz * rijz; // 5 flops
 
                 // compute the acceleration value between body i and body j
-                // const float partial_denom = std::sqrt(rijSquared + softSquared);
-                // const float factor = G / (partial_denom * partial_denom * partial_denom);
+                // const T partial_denom = std::sqrt(rijSquared + softSquared);
+                // const T factor = G / (partial_denom * partial_denom * partial_denom);
 
-                const float partial_factor = rsqrtf(rijSquared + softSquared); // ~ 4 flops
-                const float factor =
+                const T partial_factor = rsqrtf(rijSquared + softSquared); // ~ 4 flops
+                const T factor =
                     G * (partial_factor * partial_factor * partial_factor); // 3 flops
 
-                const float ai = factor * SHm[jBody]; // 1 flop
+                const T ai = factor * SHm[jBody]; // 1 flop
 
                 // add the acceleration value into the acceleration vector
                 devAccelerations[iBody].ax += ai * rijx; // 2 flops
@@ -142,7 +147,8 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
     }
 }
 
-void SimulationNBodyCUDATileFullDevice::computeBodiesAcceleration()
+template <typename T>
+void SimulationNBodyCUDATileFullDevice<T>::computeBodiesAcceleration()
 {
     int threads = 1024;
     int blocks = (this->getBodies().getN() + threads - 1) / threads;  
@@ -150,10 +156,10 @@ void SimulationNBodyCUDATileFullDevice::computeBodiesAcceleration()
         threads = this->getBodies().getN();
     }
 
-    const dataSoA_t<float> &d = this->getBodies().getDataSoA();
-    cudaMemcpy(this->devQx, d.qx.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQy, d.qy.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQz, d.qz.data(), this->getBodies().getN() * sizeof(float), cudaMemcpyHostToDevice);
+    const dataSoA_t<T> &d = this->getBodies().getDataSoA();
+    cudaMemcpy(this->devQx, d.qx.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(this->devQy, d.qy.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(this->devQz, d.qz.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
 
     devComputeBodiesAccelerationTileFullDevice<<<blocks, threads>>>(
                                             this->devAccelerations,
@@ -162,13 +168,17 @@ void SimulationNBodyCUDATileFullDevice::computeBodiesAcceleration()
     cudaDeviceSynchronize();
 
     cudaMemcpy(this->accelerations.data(), this->devAccelerations, 
-               this->getBodies().getN() * sizeof(accAoS_t<float>), cudaMemcpyDeviceToHost);
+               this->getBodies().getN() * sizeof(accAoS_t<T>), cudaMemcpyDeviceToHost);
 }
 
-SimulationNBodyCUDATileFullDevice::~SimulationNBodyCUDATileFullDevice() {
+template <typename T>
+SimulationNBodyCUDATileFullDevice<T>::~SimulationNBodyCUDATileFullDevice() {
     cudaFree(devM);
     cudaFree(devQx);
     cudaFree(devQy);
     cudaFree(devQz);
     cudaFree(devAccelerations);
 }
+
+template class SimulationNBodyCUDATileFullDevice<float>;
+template class SimulationNBodyCUDATileFullDevice<double>;

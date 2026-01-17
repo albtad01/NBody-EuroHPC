@@ -186,11 +186,12 @@ std::string strDate(float timestamp)
  *
  * \return A fresh allocated simulation.
  */
-SimulationNBodyInterface<float> *createImplem()
+template <typename T>
+SimulationNBodyInterface<T> *createImplem()
 {
-    SimulationNBodyInterface<float> *simu = nullptr;
+    SimulationNBodyInterface<T> *simu = nullptr;
     if (ImplTag == "cpu+naive") {
-        simu = new SimulationNBodyNaive<float>(NBodies, BodiesScheme, Softening);
+        simu = new SimulationNBodyNaive<T>(NBodies, BodiesScheme, Softening);
     }
     // else if (ImplTag == "cpu+optim") {
     //     simu = new SimulationNBodyCpuOptim(NBodies, BodiesScheme, Softening);
@@ -199,7 +200,7 @@ SimulationNBodyInterface<float> *createImplem()
     //     simu = new SimulationNBodyCUDABase(NBodies, BodiesScheme, Softening);
     // }
     else if (ImplTag == "gpu+tile") {
-        simu = new SimulationNBodyCUDATile(NBodies, BodiesScheme, Softening);
+        simu = new SimulationNBodyCUDATile<T>(NBodies, BodiesScheme, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
         simu = new SimulationNBodyCUDATileFullDevice(NBodies, BodiesScheme, Softening);
@@ -211,7 +212,8 @@ SimulationNBodyInterface<float> *createImplem()
     return simu;
 }
 
-SpheresVisu *createVisu(SimulationNBodyInterface<float> *simu)
+template <typename T>
+SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu)
 {
     SpheresVisu *visu;
 
@@ -254,7 +256,7 @@ int main(int argc, char **argv)
     argsReader(argc, argv);
 
     // create the n-body simulation
-    SimulationNBodyInterface<float> *simu = createImplem();
+    SimulationNBodyInterface<float> *simu = createImplem<float>();
     NBodies = simu->getBodies().getN();
 
     // get MB used for this simulation
@@ -275,7 +277,7 @@ int main(int argc, char **argv)
     std::cout << "  -> softening factor  (--soft): " << Softening << std::endl;
 
     // initialize visualization of bodies (with spheres in space)
-    SpheresVisu *visu = createVisu(simu);
+    SpheresVisu *visu = createVisu<float>(simu);
 
     // time step selection
     simu->setDt(Dt);

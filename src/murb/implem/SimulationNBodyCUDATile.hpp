@@ -7,17 +7,18 @@
 #include "core/SimulationNBodyInterface.hpp"
 #include "core/Bodies.hpp"
 
-class SimulationNBodyCUDATile : public SimulationNBodyInterface<float> {
+template <typename T>
+class SimulationNBodyCUDATile : public SimulationNBodyInterface<T> {
   protected:
-    std::vector<accAoS_t<float>> accelerations; /*!< Array of body acceleration structures. */
-    accAoS_t<float>* devAccelerations;
-    float* devM; 
-    float* devQx;
-    float* devQy;
-    float* devQz;
-    const float softSquared;
+    std::vector<accAoS_t<T>> accelerations; /*!< Array of body acceleration structures. */
+    accAoS_t<T>* devAccelerations;
+    T* devM; 
+    T* devQx;
+    T* devQy;
+    T* devQz;
+    const T softSquared;
   public:
-    SimulationNBodyCUDATile(const unsigned long nBodies, const std::string &scheme = "galaxy", const float soft = 0.035f,
+    SimulationNBodyCUDATile(const unsigned long nBodies, const std::string &scheme = "galaxy", const T soft = 0.035f,
                          const unsigned long randInit = 0);
     virtual ~SimulationNBodyCUDATile();
     virtual void computeOneIteration();
@@ -26,5 +27,6 @@ class SimulationNBodyCUDATile : public SimulationNBodyInterface<float> {
     void initIteration();
     void computeBodiesAcceleration();
 };
+
 
 #endif /* SIMULATION_N_BODY_NAIVE_HPP_ */

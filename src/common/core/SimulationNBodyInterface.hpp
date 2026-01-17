@@ -85,14 +85,5 @@ class SimulationNBodyInterface {
     const T getAllocatedBytes() const;
 };
 
-#include "SimulationNBodyInterface.cpp"
-
-// template <typename T>
-// class DummySimulation: public SimulationNBodyInterface<T> {
-//   public:
-//     DummySimulation(const unsigned long nBodies, const std::string &scheme,
-//                     const T soft, const unsigned long randInit = 0);
-//     virtual void computeOneIteration();
-// };
 
 #endif /* SIMULATION_N_BODY_INTERFACE_HPP_ */

@@ -9,6 +9,7 @@
 
 #include "SimulationNBodyNaive.hpp"
 #include "SimulationNBodyCUDATile.hpp"
+#include "SimulationNBodyCUDATileFullDevice.hpp"
 
 void test_nbody_cpu_optim(const size_t n, const float soft, const float dt, const size_t nIte, const std::string &scheme,
                      const float eps)
@@ -16,7 +17,7 @@ void test_nbody_cpu_optim(const size_t n, const float soft, const float dt, cons
     SimulationNBodyNaive simuRef(n, scheme, soft);
     simuRef.setDt(dt);
 
-    SimulationNBodyCUDATile simuTest(n, scheme, soft);
+    SimulationNBodyCUDATileFullDevice simuTest(n, scheme, soft);
     simuTest.setDt(dt);
 
     const float *xRef = simuRef.getBodies().getDataSoA().qx.data();
