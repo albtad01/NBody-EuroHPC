@@ -18,8 +18,8 @@ class SimulationNBodyCUDATile : public SimulationNBodyInterface<T> {
     T* devQz;
     const T softSquared;
   public:
-    SimulationNBodyCUDATile(const unsigned long nBodies, const std::string &scheme = "galaxy", const T soft = 0.035f,
-                         const unsigned long randInit = 0);
+    SimulationNBodyCUDATile(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
+                         
     virtual ~SimulationNBodyCUDATile();
     virtual void computeOneIteration();
 

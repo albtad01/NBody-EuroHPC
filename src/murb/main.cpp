@@ -191,7 +191,8 @@ SimulationNBodyInterface<T> *createImplem()
 {
     SimulationNBodyInterface<T> *simu = nullptr;
     if (ImplTag == "cpu+naive") {
-        simu = new SimulationNBodyNaive<T>(NBodies, BodiesScheme, Softening);
+        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyNaive<T>(allocator, Softening);
     }
     // else if (ImplTag == "cpu+optim") {
     //     simu = new SimulationNBodyCpuOptim(NBodies, BodiesScheme, Softening);
@@ -200,10 +201,12 @@ SimulationNBodyInterface<T> *createImplem()
     //     simu = new SimulationNBodyCUDABase(NBodies, BodiesScheme, Softening);
     // }
     else if (ImplTag == "gpu+tile") {
-        simu = new SimulationNBodyCUDATile<T>(NBodies, BodiesScheme, Softening);
+        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
-        simu = new SimulationNBodyCUDATileFullDevice(NBodies, BodiesScheme, Softening);
+        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyCUDATileFullDevice(allocator, Softening);
     }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
@@ -219,31 +222,31 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu)
 
 #ifdef VISU
     if (VisuEnable) {
-        const float *positionsX = simu->getBodies().getDataSoA().qx.data();
-        const float *positionsY = simu->getBodies().getDataSoA().qy.data();
-        const float *positionsZ = simu->getBodies().getDataSoA().qz.data();
+        const T *positionsX = simu->getBodies()->getDataSoA().qx.data();
+        const T *positionsY = simu->getBodies()->getDataSoA().qy.data();
+        const T *positionsZ = simu->getBodies()->getDataSoA().qz.data();
 
-        const float *velocitiesX = simu->getBodies().getDataSoA().vx.data();
-        const float *velocitiesY = simu->getBodies().getDataSoA().vy.data();
-        const float *velocitiesZ = simu->getBodies().getDataSoA().vz.data();
+        const T *velocitiesX = simu->getBodies()->getDataSoA().vx.data();
+        const T *velocitiesY = simu->getBodies()->getDataSoA().vy.data();
+        const T *velocitiesZ = simu->getBodies()->getDataSoA().vz.data();
 
-        const float *radiuses = simu->getBodies().getDataSoA().r.data();
+        const T *radiuses = simu->getBodies()->getDataSoA().r.data();
 
         if (GSEnable) // geometry shader = better performances on dedicated GPUs
-            visu = new OGLSpheresVisuGS<float>("MUrB n-body (geometry shader)", WinWidth, WinHeight, positionsX,
+            visu = new OGLSpheresVisuGS<T>("MUrB n-body (geometry shader)", WinWidth, WinHeight, positionsX,
                                                positionsY, positionsZ, velocitiesX, velocitiesY, velocitiesZ, radiuses,
                                                NBodies, VisuColor);
         else
-            visu = new OGLSpheresVisuInst<float>("MUrB n-body (instancing)", WinWidth, WinHeight, positionsX,
+            visu = new OGLSpheresVisuInst<T>("MUrB n-body (instancing)", WinWidth, WinHeight, positionsX,
                                                  positionsY, positionsZ, velocitiesX, velocitiesY, velocitiesZ,
                                                  radiuses, NBodies, VisuColor);
         std::cout << std::endl;
     }
     else
-        visu = new SpheresVisuNo<float>();
+        visu = new SpheresVisuNo<T>();
 #else
     VisuEnable = false;
-    visu = new SpheresVisuNo<float>();
+    visu = new SpheresVisuNo<T>();
 #endif
 
     return visu;
@@ -257,7 +260,7 @@ int main(int argc, char **argv)
 
     // create the n-body simulation
     SimulationNBodyInterface<float> *simu = createImplem<float>();
-    NBodies = simu->getBodies().getN();
+    NBodies = simu->getBodies()->getN();
 
     // get MB used for this simulation
     float Mbytes = simu->getAllocatedBytes() / 1024.f / 1024.f;

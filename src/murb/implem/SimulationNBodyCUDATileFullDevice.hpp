@@ -18,8 +18,7 @@ class SimulationNBodyCUDATileFullDevice : public SimulationNBodyInterface<T> {
     T* devQz;
     const T softSquared;
   public:
-    SimulationNBodyCUDATileFullDevice(const unsigned long nBodies, const std::string &scheme = "galaxy", const T soft = 0.035f,
-                         const unsigned long randInit = 0);
+    SimulationNBodyCUDATileFullDevice(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
     virtual ~SimulationNBodyCUDATileFullDevice();
     virtual void computeOneIteration();
 

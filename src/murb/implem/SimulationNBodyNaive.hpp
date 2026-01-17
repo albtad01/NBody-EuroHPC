@@ -11,8 +11,7 @@ class SimulationNBodyNaive : public SimulationNBodyInterface<T> {
     std::vector<accAoS_t<T>> accelerations; /*!< Array of body acceleration structures. */
 
   public:
-    SimulationNBodyNaive(const unsigned long nBodies, const std::string &scheme = "galaxy", const T soft = 0.035f,
-                         const unsigned long randInit = 0);
+    SimulationNBodyNaive(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
     virtual ~SimulationNBodyNaive() = default;
     virtual void computeOneIteration();
 

@@ -11,21 +11,20 @@
 #include "SimulationNBodyCUDATile.hpp"
 
 template <typename T>
-SimulationNBodyCUDATile<T>::SimulationNBodyCUDATile(const unsigned long nBodies, const std::string &scheme, const T soft,
-                                           const unsigned long randInit)
-    : SimulationNBodyInterface<T>(nBodies, scheme, soft, randInit), softSquared{soft*soft}
+SimulationNBodyCUDATile<T>::SimulationNBodyCUDATile(const BodiesAllocatorInterface<T>& allocator, const T soft)
+    : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}
 {
-    this->flopsPerIte = 20.f * (T)this->getBodies().getN() * (T)this->getBodies().getN();
-    this->accelerations.resize(this->getBodies().getN());
+    this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
+    this->accelerations.resize(this->getBodies()->getN());
 
-    const dataSoA_t<T> &d = this->getBodies().getDataSoA();
-    cudaMalloc(&this->devM, this->getBodies().getN()*sizeof(T));
-    cudaMemcpy(this->devM, d.m.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
+    const dataSoA_t<T> &d = this->getBodies()->getDataSoA();
+    cudaMalloc(&this->devM, this->getBodies()->getN()*sizeof(T));
+    cudaMemcpy(this->devM, d.m.data(), this->getBodies()->getN() * sizeof(T), cudaMemcpyHostToDevice);
 
-    cudaMalloc(&this->devQx, this->getBodies().getN()*sizeof(T));
-    cudaMalloc(&this->devQy, this->getBodies().getN()*sizeof(T));
-    cudaMalloc(&this->devQz, this->getBodies().getN()*sizeof(T));
-    cudaMalloc(&this->devAccelerations, this->getBodies().getN()*sizeof(accAoS_t<T>));
+    cudaMalloc(&this->devQx, this->getBodies()->getN()*sizeof(T));
+    cudaMalloc(&this->devQy, this->getBodies()->getN()*sizeof(T));
+    cudaMalloc(&this->devQz, this->getBodies()->getN()*sizeof(T));
+    cudaMalloc(&this->devAccelerations, this->getBodies()->getN()*sizeof(accAoS_t<T>));
 }
 
 template <typename T>
@@ -43,13 +42,13 @@ template <typename T>
 void SimulationNBodyCUDATile<T>::initIteration()
 {
     int threads = 1024;
-    int blocks = (this->getBodies().getN() + threads - 1) / threads;  
+    int blocks = (this->getBodies()->getN() + threads - 1) / threads;  
     if ( blocks == 1 ) {
         blocks = 1;
-        threads = this->getBodies().getN();
+        threads = this->getBodies()->getN();
     }
-    devInitIteration<T><<<blocks, threads>>>(devAccelerations, this->getBodies().getN());
-    for (unsigned long iBody = 0; iBody < this->getBodies().getN(); iBody++) {
+    devInitIteration<T><<<blocks, threads>>>(devAccelerations, this->getBodies()->getN());
+    for (unsigned long iBody = 0; iBody < this->getBodies()->getN(); iBody++) {
         this->accelerations[iBody].ax = 0.f;
         this->accelerations[iBody].ay = 0.f;
         this->accelerations[iBody].az = 0.f;
@@ -63,7 +62,7 @@ void SimulationNBodyCUDATile<T>::computeOneIteration()
     this->initIteration();
     this->computeBodiesAcceleration();
     // time integration
-    this->bodies.updatePositionsAndVelocities(this->accelerations, this->dt);
+    this->bodies->updatePositionsAndVelocities(this->accelerations, this->dt);
 }
 
 template <typename T>
@@ -154,24 +153,24 @@ template <typename T>
 void SimulationNBodyCUDATile<T>::computeBodiesAcceleration()
 {
     int threads = 1024;
-    int blocks = (this->getBodies().getN() + threads - 1) / threads;  
+    int blocks = (this->getBodies()->getN() + threads - 1) / threads;  
     if ( blocks == 1 ) {
-        threads = this->getBodies().getN();
+        threads = this->getBodies()->getN();
     }
 
-    const dataSoA_t<T> &d = this->getBodies().getDataSoA();
-    cudaMemcpy(this->devQx, d.qx.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQy, d.qy.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQz, d.qz.data(), this->getBodies().getN() * sizeof(T), cudaMemcpyHostToDevice);
+    const dataSoA_t<T> &d = this->getBodies()->getDataSoA();
+    cudaMemcpy(this->devQx, d.qx.data(), this->getBodies()->getN() * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(this->devQy, d.qy.data(), this->getBodies()->getN() * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(this->devQz, d.qz.data(), this->getBodies()->getN() * sizeof(T), cudaMemcpyHostToDevice);
 
     devComputeBodiesAccelerationTile<T><<<blocks, threads>>>(
                                             this->devAccelerations,
                                             this->devM,this->devQx,this->devQy,this->devQz,
-                                            this->getBodies().getN(), this->G, this->softSquared);
+                                            this->getBodies()->getN(), this->G, this->softSquared);
     cudaDeviceSynchronize();
 
     cudaMemcpy(this->accelerations.data(), this->devAccelerations, 
-               this->getBodies().getN() * sizeof(accAoS_t<T>), cudaMemcpyDeviceToHost);
+               this->getBodies()->getN() * sizeof(accAoS_t<T>), cudaMemcpyDeviceToHost);
 }
 
 template <typename T>

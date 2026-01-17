@@ -3,8 +3,10 @@
 
 #include <string>
 #include <concepts>
+#include <memory>
 
 #include "Bodies.hpp"
+#include "BodiesAllocator.hpp"
 
 /*!
  * \class  SimulationNBodyInterface
@@ -14,7 +16,8 @@ template <typename T>
 class SimulationNBodyInterface {
   protected:
     const T G = 6.67384e-11f; /*!< The gravitational constant in m^3.kg^-1.s^-2. */
-    Bodies<T> bodies;         /*!< Bodies object, represent all the bodies available in space. */
+    const BodiesAllocatorInterface<T>& allocator;
+    std::shared_ptr<Bodies<T>> bodies;         /*!< Bodies object, represent all the bodies available in space. */
     T dt;                     /*!< Time step value. */
     T soft;                   /*!< Softening factor value. */
     T flopsPerIte;            /*!< Number of floating-point operations per iteration. */
@@ -31,8 +34,7 @@ class SimulationNBodyInterface {
      *  \param soft      : Softening factor value.
      *  \param randInit  : PNRG seed.
      */
-    SimulationNBodyInterface(const unsigned long nBodies, const std::string &scheme = "galaxy",
-                             const T soft = 0.035f, const unsigned long randInit = 0);
+    SimulationNBodyInterface(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
 
   public:
     /*!
@@ -54,7 +56,7 @@ class SimulationNBodyInterface {
      *
      *  \return Bodies class.
      */
-    const Bodies<T> &getBodies() const;
+    const std::shared_ptr<Bodies<T>> &getBodies() const;
 
     /*!
      *  \brief dt setter.

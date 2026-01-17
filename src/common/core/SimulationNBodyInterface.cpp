@@ -8,16 +8,16 @@
 #include "SimulationNBodyInterface.hpp"
 
 template <typename T>
-SimulationNBodyInterface<T>::SimulationNBodyInterface(const unsigned long nBodies, const std::string &scheme,
-                                                   const T soft, const unsigned long randInit)
-    : bodies(nBodies, scheme, randInit), dt(std::numeric_limits<T>::infinity()), soft(soft), flopsPerIte(0),
-      allocatedBytes(bodies.getAllocatedBytes())
+SimulationNBodyInterface<T>::SimulationNBodyInterface(const BodiesAllocatorInterface<T> &allocator, const T soft)
+    : allocator{allocator}, dt(std::numeric_limits<T>::infinity()), soft(soft), flopsPerIte(0)
 {
-    this->allocatedBytes += (this->bodies.getN() + this->bodies.getPadding()) * sizeof(T) * 3;
+    this->bodies = allocator.allocate_shared();
+    this->allocatedBytes = bodies->getAllocatedBytes();
+    this->allocatedBytes += (this->bodies->getN() + this->bodies->getPadding()) * sizeof(T) * 3;
 }
 
 template <typename T>
-const Bodies<T> &SimulationNBodyInterface<T>::getBodies() const { return this->bodies; }
+const std::shared_ptr<Bodies<T>> &SimulationNBodyInterface<T>::getBodies() const { return this->bodies; }
 
 template <typename T>
 void SimulationNBodyInterface<T>::setDt(T dtVal) { this->dt = dtVal; }

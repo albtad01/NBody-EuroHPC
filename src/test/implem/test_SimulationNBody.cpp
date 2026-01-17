@@ -14,19 +14,21 @@
 void test_nbody_cpu_optim(const size_t n, const float soft, const float dt, const size_t nIte, const std::string &scheme,
                      const float eps)
 {
-    SimulationNBodyNaive simuRef(n, scheme, soft);
+    BodiesAllocator<float> allocator(n, scheme);
+
+    SimulationNBodyNaive<float> simuRef(allocator, soft);
     simuRef.setDt(dt);
 
-    SimulationNBodyCUDATileFullDevice simuTest(n, scheme, soft);
+    SimulationNBodyCUDATileFullDevice<float> simuTest(allocator, soft);
     simuTest.setDt(dt);
 
-    const float *xRef = simuRef.getBodies().getDataSoA().qx.data();
-    const float *yRef = simuRef.getBodies().getDataSoA().qy.data();
-    const float *zRef = simuRef.getBodies().getDataSoA().qz.data();
+    const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();
+    const float *yRef = simuRef.getBodies()->getDataSoA().qy.data();
+    const float *zRef = simuRef.getBodies()->getDataSoA().qz.data();
 
-    const float *xTest = simuTest.getBodies().getDataSoA().qx.data();
-    const float *yTest = simuTest.getBodies().getDataSoA().qy.data();
-    const float *zTest = simuTest.getBodies().getDataSoA().qz.data();
+    const float *xTest = simuTest.getBodies()->getDataSoA().qx.data();
+    const float *yTest = simuTest.getBodies()->getDataSoA().qy.data();
+    const float *zTest = simuTest.getBodies()->getDataSoA().qz.data();
 
     float e = 0; // espilon
     for (size_t i = 0; i < nIte + 1; i++) {
@@ -36,7 +38,7 @@ void test_nbody_cpu_optim(const size_t n, const float soft, const float dt, cons
             e = eps;
         }
 
-        for (size_t b = 0; b < simuRef.getBodies().getN(); b++) {
+        for (size_t b = 0; b < simuRef.getBodies()->getN(); b++) {
             CAPTURE(b, i, std::log10(eps));
             REQUIRE_THAT(xRef[b], Catch::Matchers::WithinRel(xTest[b], e));
             REQUIRE_THAT(yRef[b], Catch::Matchers::WithinRel(yTest[b], e));
