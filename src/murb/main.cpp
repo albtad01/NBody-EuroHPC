@@ -205,7 +205,7 @@ SimulationNBodyInterface<T> *createImplem()
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
-        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+        CUDABodiesAllocator<T> allocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATileFullDevice(allocator, Softening);
     }
     else {

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <limits>
 #include <string>
 
@@ -25,6 +26,10 @@ void SimulationNBodyNaive<T>::initIteration()
     }
 }
 
+template <typename T>
+const std::vector<accAoS_t<T>>& SimulationNBodyNaive<T>::getAccAoS() {
+    return accelerations;
+}
 template <typename T>
 void SimulationNBodyNaive<T>::computeBodiesAcceleration()
 {

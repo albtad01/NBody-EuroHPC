@@ -5,22 +5,20 @@
 #include <vector>
 
 #include "core/SimulationNBodyInterface.hpp"
-#include "core/Bodies.hpp"
+#include "core/CUDABodies.hpp"
 
 template <typename T>
 class SimulationNBodyCUDATileFullDevice : public SimulationNBodyInterface<T> {
   protected:
-    std::vector<accAoS_t<T>> accelerations; /*!< Array of body acceleration structures. */
-    accAoS_t<T>* devAccelerations;
-    T* devM; 
-    T* devQx;
-    T* devQy;
-    T* devQz;
+    std::shared_ptr<CUDABodies<T>> cudaBodiesPtr;
+    devAccSoA_t<T> devAccelerations;
+    accSoA_t<T> accSoA;
     const T softSquared;
   public:
     SimulationNBodyCUDATileFullDevice(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
     virtual ~SimulationNBodyCUDATileFullDevice();
     virtual void computeOneIteration();
+    const accSoA_t<T>& getAccSoA();
 
   protected:
     void initIteration();

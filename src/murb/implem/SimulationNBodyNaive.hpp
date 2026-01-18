@@ -14,6 +14,7 @@ class SimulationNBodyNaive : public SimulationNBodyInterface<T> {
     SimulationNBodyNaive(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
     virtual ~SimulationNBodyNaive() = default;
     virtual void computeOneIteration();
+    const std::vector<accAoS_t<T>>& getAccAoS();
 
   protected:
     void initIteration();

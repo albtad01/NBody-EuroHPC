@@ -44,29 +44,38 @@ const devDataSoA_t<T>& CUDABodies<T>::getDevDataSoA() const {
 }
 
 template <typename T>
+void CUDABodies<T>::invalidateDataSoA() {
+    this->dataOnCPU = false;
+}
+
+template <typename T>
 const dataSoA_t<T>& CUDABodies<T>::getDataSoA() const {
-    // Copies the data from device to host, then returns it 
+    if ( this->dataOnCPU == false ) {
+        // Copies the data from device to host, then returns it 
 
-    // Mass and radius do not change
+        // Mass and radius do not change
 
-    // Positions
-    cudaMemcpy(Bodies<T>::dataSoA.qx.data(), this->devDataSoA.qx, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
+        // Positions
+        cudaMemcpy(Bodies<T>::dataSoA.qx.data(), this->devDataSoA.qx, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(Bodies<T>::dataSoA.qy.data(), this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
+        cudaMemcpy(Bodies<T>::dataSoA.qy.data(), this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(Bodies<T>::dataSoA.qz.data(), this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
+        cudaMemcpy(Bodies<T>::dataSoA.qz.data(), this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
 
-    // Velocities
-    cudaMemcpy(Bodies<T>::dataSoA.vx.data(), this->devDataSoA.vx, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
+        // Velocities
+        cudaMemcpy(Bodies<T>::dataSoA.vx.data(), this->devDataSoA.vx, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.vy, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
-    cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.vz, (this->n + this->padding)*sizeof(T), 
-               cudaMemcpyDeviceToHost);
+        cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.vy, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
+        cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.vz, (this->n + this->padding)*sizeof(T), 
+                cudaMemcpyDeviceToHost);
+
+        this->dataOnCPU = true;
+    }
 
     return this->dataSoA;
 }
@@ -115,6 +124,7 @@ __global__ void devUpdatePositionsAndVelocities(const devAccSoA_t<T> devAccelera
 template <typename T>
 void CUDABodies<T>::updatePositionsAndVelocitiesOnDevice(const devAccSoA_t<T> &devAccelerations, T &dt) 
 {
+    this->invalidateDataSoA();
     int threads = 1024;
     int blocks = (this->n + threads - 1) / threads;  
     if ( blocks == 1 ) {

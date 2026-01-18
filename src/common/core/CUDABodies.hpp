@@ -32,12 +32,13 @@ template <typename T> class CUDABodies : public Bodies<T> {
 
     // =============================== DEVICE ATTRIBUTES =================================
     devDataSoA_t<T> devDataSoA;
+    mutable bool dataOnCPU = false;
 
   public:
     CUDABodies(const unsigned long n, const std::string &scheme = "galaxy", const unsigned long randInit = 0);
 
     const devDataSoA_t<T> &getDevDataSoA() const;
-
+    void invalidateDataSoA();
     virtual const dataSoA_t<T> &getDataSoA() const;
     virtual const std::vector<dataAoS_t<T>> &getDataAoS() const;
 
