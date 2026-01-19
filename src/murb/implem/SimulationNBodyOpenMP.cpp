@@ -51,6 +51,7 @@ void SimulationNBodyOpenMP<T>::computeBodiesAcceleration()
     const long n_vec = n - (n % V);
 
     // Parallelize outer loop: each i is independent.
+    // OMP_DISPLAY_ENV=TRUE OMP_NUM_THREADS=16 srun -p az4-n4090 -c 16 ./bin/murb -n 30000 -i 200 --im cpu+omp --nv
     #ifdef _OPENMP
     #pragma omp parallel for schedule(static)
     #endif
