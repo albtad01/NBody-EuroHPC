@@ -18,11 +18,12 @@
 #include "utils/ArgumentsReader.hpp"
 #include "utils/Perf.hpp"
 
-#include "implem/SimulationNBodyNaive.hpp"
-// #include "implem/SimulationNBodyCUDABase.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
-// #include "implem/SimulationNBodyCpuOptim.hpp"
+#include "implem/SimulationNBodyNaive.hpp"
+#include "implem/SimulationNBodyOpenMP.hpp"
+#include "implem/SimulationNBodyOptim.hpp"
+#include "implem/SimulationNBodySIMD.hpp"
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -78,11 +79,12 @@ void argsReader(int argc, char **argv)
     docArgs["-nvc"] = "visualization without colors.";
     faculArgs["-im"] = "ImplTag";
     docArgs["-im"] = "code implementation tag:\n"
+                     "\t\t\t - \"cpu+simd\"\n"
+                     "\t\t\t - \"cpu+optim\"\n"
+                     "\t\t\t - \"cpu+openmp\"\n"
                      "\t\t\t - \"cpu+naive\"\n"
-                    //  "\t\t\t - \"cpu+optim\"\n"
-                    //  "\t\t\t - \"gpu+base\"\n"
-                     "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+full\"\n"
+                     "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -190,23 +192,27 @@ template <typename T>
 SimulationNBodyInterface<T> *createImplem()
 {
     SimulationNBodyInterface<T> *simu = nullptr;
+    
+    BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+
     if (ImplTag == "cpu+naive") {
-        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyNaive<T>(allocator, Softening);
     }
-    // else if (ImplTag == "cpu+optim") {
-    //     simu = new SimulationNBodyCpuOptim(NBodies, BodiesScheme, Softening);
-    // }
-    // else if (ImplTag == "gpu+base") {
-    //     simu = new SimulationNBodyCUDABase(NBodies, BodiesScheme, Softening);
-    // }
+    else if (ImplTag == "cpu+simd") {
+        simu = new SimulationNBodySIMD<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+optim") {
+        simu = new SimulationNBodyOptim<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+omp") {
+        simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
+    }
     else if (ImplTag == "gpu+tile") {
-        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
-        CUDABodiesAllocator<T> allocator(NBodies, BodiesScheme);
-        simu = new SimulationNBodyCUDATileFullDevice(allocator, Softening);
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
     }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
