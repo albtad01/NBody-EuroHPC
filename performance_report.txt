@@ -46,3 +46,13 @@ TODO: use nsys prof to do profiling and see if it is computation bound or commun
     So in the shared memory we save mass, qx, qy and qz. 
     Furthermore, a big improvement is obtained by using rsqrtf to compute 1/sqrt(rijSquared+softSquared), which
     then is raised to the third.
+
+# TODO
+1. Provare a selezionare shared memory più grande (link seguente)
+https://docs.nvidia.com/cuda/cuda-programming-guide/03-advanced/advanced-kernel-programming.html#configuring-l1-shared-memory-balance
+
+2. Finire di leggere la programming guide di CUDA
+
+3. Cercare letteratura scientifica fisica
+
+4. Implementare barners hut

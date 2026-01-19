@@ -20,6 +20,7 @@
 
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
+#include "implem/SimulationNBodyCUDATileAdvanced.hpp"
 #include "implem/SimulationNBodyNaive.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp"
 #include "implem/SimulationNBodyOptim.hpp"
@@ -85,6 +86,7 @@ void argsReader(int argc, char **argv)
                      "\t\t\t - \"cpu+naive\"\n"
                      "\t\t\t - \"gpu+tile+full\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
+                     "\t\t\t - \"gpu+tile+advanced\"\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -213,6 +215,9 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
+    }
+    else if (ImplTag == "gpu+tile+advanced") {
+        simu = new SimulationNBodyCUDATileAdvanced<T>(allocator, Softening);
     }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;

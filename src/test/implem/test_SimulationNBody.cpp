@@ -11,6 +11,7 @@
 #include "SimulationNBodyNaive.hpp"
 #include "SimulationNBodyCUDATile.hpp"
 #include "SimulationNBodyCUDATileFullDevice.hpp"
+#include "SimulationNBodyCUDATileAdvanced.hpp"
 
 template <typename T>
 void compare_arrays(const T* a1, const T* a2, int n) {
@@ -54,7 +55,7 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
 
     // CUDABodiesAllocator<float> cudaAllocator(n, scheme);
     // SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
-    SimulationNBodyCUDATile<float> simuTest(naiveAllocator, soft);
+    SimulationNBodyCUDATileAdvanced<float> simuTest(naiveAllocator, soft);
     simuTest.setDt(dt);
 
     const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();
