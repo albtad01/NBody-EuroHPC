@@ -17,6 +17,7 @@ class SimulationNBodyCUDATile : public SimulationNBodyInterface<T> {
     T* devQy;
     T* devQz;
     const T softSquared;
+    int _num_threads, _num_blocks, _elem_per_thread;
   public:
     SimulationNBodyCUDATile(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
                          
