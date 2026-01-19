@@ -9,6 +9,12 @@
 #include "SimulationNBodySIMD.hpp"
 
 template <typename T>
+static inline T inv_sqrt_scalar(T x) {
+    // Portable scalar fallback. (No rsqrtf on CPU.)
+    return T(1) / std::sqrt(x);
+}
+
+template <typename T>
 SimulationNBodySIMD<T>::SimulationNBodySIMD(const BodiesAllocatorInterface<T>& allocator, const T soft)
     : SimulationNBodyInterface<T>(allocator, soft)
 {
@@ -30,19 +36,21 @@ const std::vector<accAoS_t<T>>& SimulationNBodySIMD<T>::getAccAoS() {
 template <typename T>
 void SimulationNBodySIMD<T>::computeBodiesAcceleration()
 {
-    const auto& bodiesData = this->getBodies()->getDataSoA();
-
-    const T* __restrict__ m  = bodiesData.m.data();
-    const T* __restrict__ qx = bodiesData.qx.data();
-    const T* __restrict__ qy = bodiesData.qy.data();
-    const T* __restrict__ qz = bodiesData.qz.data();
+    const auto& d = this->getBodies()->getDataSoA();
+    const T* __restrict__ m  = d.m.data();
+    const T* __restrict__ qx = d.qx.data();
+    const T* __restrict__ qy = d.qy.data();
+    const T* __restrict__ qz = d.qz.data();
 
     const long n = (long)this->getBodies()->getN();
-    const T softSquared = this->soft * this->soft;
-    const T G = this->G;
+
+    const T softSquared = this->soft * this->soft;  // hoist invariant
+    const T G = this->G;                            // hoist invariant
 
     const int V = mipp::N<T>();
     const long n_vec = n - (n % V);
+
+    constexpr int UNROLL = 2; // try 1/2/4 and keep the best
 
     for (long i = 0; i < n; i++) {
 
@@ -50,18 +58,52 @@ void SimulationNBodySIMD<T>::computeBodiesAcceleration()
         const T qi_y = qy[i];
         const T qi_z = qz[i];
 
-        mipp::Reg<T> r_ax = T(0);
-        mipp::Reg<T> r_ay = T(0);
-        mipp::Reg<T> r_az = T(0);
-
         const mipp::Reg<T> r_qi_x = qi_x;
         const mipp::Reg<T> r_qi_y = qi_y;
         const mipp::Reg<T> r_qi_z = qi_z;
         const mipp::Reg<T> r_soft = softSquared;
         const mipp::Reg<T> r_G    = G;
 
-        for (long j = 0; j < n_vec; j += V) {
+        mipp::Reg<T> r_ax = T(0);
+        mipp::Reg<T> r_ay = T(0);
+        mipp::Reg<T> r_az = T(0);
 
+        long j = 0;
+
+        // Unrolled vector loop
+        for (; j + (UNROLL * V) <= n_vec; j += UNROLL * V) {
+            #pragma unroll
+            for (int u = 0; u < UNROLL; ++u) {
+                const long jj = j + u * V;
+
+                const mipp::Reg<T> r_mj  = &m[jj];
+                const mipp::Reg<T> r_qjx = &qx[jj];
+                const mipp::Reg<T> r_qjy = &qy[jj];
+                const mipp::Reg<T> r_qjz = &qz[jj];
+
+                const mipp::Reg<T> r_dx = r_qjx - r_qi_x;
+                const mipp::Reg<T> r_dy = r_qjy - r_qi_y;
+                const mipp::Reg<T> r_dz = r_qjz - r_qi_z;
+
+                // Use FMA-style accumulation for dist2 when available
+                const mipp::Reg<T> r_dist2 =
+                    mipp::fmadd(r_dx, r_dx,
+                    mipp::fmadd(r_dy, r_dy,
+                    mipp::fmadd(r_dz, r_dz, r_soft)));
+
+                const mipp::Reg<T> r_inv  = mipp::rsqrt(r_dist2);
+                const mipp::Reg<T> r_inv3 = r_inv * r_inv * r_inv;
+
+                const mipp::Reg<T> r_fac = r_G * r_mj * r_inv3;
+
+                r_ax = mipp::fmadd(r_fac, r_dx, r_ax);
+                r_ay = mipp::fmadd(r_fac, r_dy, r_ay);
+                r_az = mipp::fmadd(r_fac, r_dz, r_az);
+            }
+        }
+
+        // Vector remainder
+        for (; j < n_vec; j += V) {
             const mipp::Reg<T> r_mj  = &m[j];
             const mipp::Reg<T> r_qjx = &qx[j];
             const mipp::Reg<T> r_qjy = &qy[j];
@@ -71,7 +113,10 @@ void SimulationNBodySIMD<T>::computeBodiesAcceleration()
             const mipp::Reg<T> r_dy = r_qjy - r_qi_y;
             const mipp::Reg<T> r_dz = r_qjz - r_qi_z;
 
-            const mipp::Reg<T> r_dist2 = r_dx*r_dx + r_dy*r_dy + r_dz*r_dz + r_soft;
+            const mipp::Reg<T> r_dist2 =
+                mipp::fmadd(r_dx, r_dx,
+                mipp::fmadd(r_dy, r_dy,
+                mipp::fmadd(r_dz, r_dz, r_soft)));
 
             const mipp::Reg<T> r_inv  = mipp::rsqrt(r_dist2);
             const mipp::Reg<T> r_inv3 = r_inv * r_inv * r_inv;
@@ -87,18 +132,18 @@ void SimulationNBodySIMD<T>::computeBodiesAcceleration()
         T ay = mipp::hadd(r_ay);
         T az = mipp::hadd(r_az);
 
-        // Scalar tail: avoid pow(), keep same math as SIMD path.
-        for (long j = n_vec; j < n; j++) {
-            const T dx = qx[j] - qi_x;
-            const T dy = qy[j] - qi_y;
-            const T dz = qz[j] - qi_z;
+        // Scalar tail: keep math consistent with SIMD path (inv^3).
+        for (long jt = n_vec; jt < n; jt++) {
+            const T dx = qx[jt] - qi_x;
+            const T dy = qy[jt] - qi_y;
+            const T dz = qz[jt] - qi_z;
 
             const T dist2 = dx*dx + dy*dy + dz*dz + softSquared;
 
-            const T inv  = T(1) / std::sqrt(dist2);
+            const T inv  = inv_sqrt_scalar<T>(dist2);
             const T inv3 = inv * inv * inv;
 
-            const T fac = G * m[j] * inv3;
+            const T fac = G * m[jt] * inv3;
 
             ax += fac * dx;
             ay += fac * dy;

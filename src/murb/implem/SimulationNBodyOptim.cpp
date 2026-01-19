@@ -7,14 +7,10 @@
 
 #include "SimulationNBodyOptim.hpp"
 
-// Fast inverse sqrt (use rsqrt for float, 1/sqrt for double)
 template <typename T>
-static inline T inv_sqrt(T x) {
+static inline T inv_sqrt_scalar(T x) {
+    // Portable scalar fallback. (No rsqrtf on CPU.)
     return T(1) / std::sqrt(x);
-}
-template <>
-inline float inv_sqrt<float>(float x) {
-    return rsqrtf(x);
 }
 
 template <typename T>
@@ -47,9 +43,8 @@ void SimulationNBodyOptim<T>::computeBodiesAcceleration()
 
     const long n = (long)this->getBodies()->getN();
 
-    // Hoist constants out of loops
-    const T softSquared = this->soft * this->soft;
-    const T G = this->G;
+    const T softSquared = this->soft * this->soft;  // hoist invariant
+    const T G = this->G;                            // hoist invariant
 
     for (long i = 0; i < n; i++) {
         const T qi_x = qx[i];
@@ -58,17 +53,43 @@ void SimulationNBodyOptim<T>::computeBodiesAcceleration()
 
         T ax = T(0), ay = T(0), az = T(0);
 
-        // Reduce memory traffic: keep pointers local, simple loop
-        for (long j = 0; j < n; j++) {
+        // Small unroll to increase ILP without too much register pressure.
+        long j = 0;
+        for (; j + 1 < n; j += 2) {
+            // j
+            const T dx0 = qx[j]   - qi_x;
+            const T dy0 = qy[j]   - qi_y;
+            const T dz0 = qz[j]   - qi_z;
+            const T dist20 = dx0*dx0 + dy0*dy0 + dz0*dz0 + softSquared;
+            const T inv0   = inv_sqrt_scalar<T>(dist20);
+            const T inv30  = inv0 * inv0 * inv0;
+            const T fac0   = G * m[j] * inv30;
+            ax += fac0 * dx0;
+            ay += fac0 * dy0;
+            az += fac0 * dz0;
+
+            // j+1
+            const T dx1 = qx[j+1] - qi_x;
+            const T dy1 = qy[j+1] - qi_y;
+            const T dz1 = qz[j+1] - qi_z;
+            const T dist21 = dx1*dx1 + dy1*dy1 + dz1*dz1 + softSquared;
+            const T inv1   = inv_sqrt_scalar<T>(dist21);
+            const T inv31  = inv1 * inv1 * inv1;
+            const T fac1   = G * m[j+1] * inv31;
+            ax += fac1 * dx1;
+            ay += fac1 * dy1;
+            az += fac1 * dz1;
+        }
+
+        // tail (if n is odd)
+        for (; j < n; j++) {
             const T dx = qx[j] - qi_x;
             const T dy = qy[j] - qi_y;
             const T dz = qz[j] - qi_z;
 
             const T dist2 = dx*dx + dy*dy + dz*dz + softSquared;
-
-            // invDist^3 = (1/sqrt(dist2))^3 (float uses rsqrtf)
-            const T inv  = inv_sqrt<T>(dist2);
-            const T inv3 = inv * inv * inv;
+            const T inv   = inv_sqrt_scalar<T>(dist2);
+            const T inv3  = inv * inv * inv;
 
             const T fac = G * m[j] * inv3;
 
