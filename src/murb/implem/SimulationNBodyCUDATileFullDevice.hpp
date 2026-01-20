@@ -14,8 +14,10 @@ class SimulationNBodyCUDATileFullDevice : public SimulationNBodyInterface<T> {
     devAccSoA_t<T> devAccelerations;
     accSoA_t<T> accSoA;
     const T softSquared;
+    bool const transfer_each_iteration;
   public:
-    SimulationNBodyCUDATileFullDevice(const BodiesAllocatorInterface<T>& allocator, const T soft = 0.035f);
+    SimulationNBodyCUDATileFullDevice(const BodiesAllocatorInterface<T>& allocator, 
+        const T soft = 0.035f, const bool transfer_each_iteration = false);
     virtual ~SimulationNBodyCUDATileFullDevice();
     virtual void computeOneIteration();
     const accSoA_t<T>& getAccSoA();

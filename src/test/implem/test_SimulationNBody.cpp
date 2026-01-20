@@ -9,6 +9,7 @@
 #include <iomanip>
 
 #include "SimulationNBodyNaive.hpp"
+#include "SimulationNBodyOpenMP.hpp"
 #include "SimulationNBodyCUDATile.hpp"
 #include "SimulationNBodyCUDATileFullDevice.hpp"
 #include "SimulationNBodyCUDATileAdvanced.hpp"
@@ -55,7 +56,11 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
 
     // CUDABodiesAllocator<float> cudaAllocator(n, scheme);
     // SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
-    SimulationNBodyCUDATileAdvanced<float> simuTest(naiveAllocator, soft);
+    // SimulationNBodyCUDATile<float> simuTest(naiveAllocator, soft);
+
+    // SimulationNBodyOptim<float> simuTest(naiveAllocator, soft);
+    // SimulationNBodySIMD<float> simuTest(naiveAllocator, soft);
+    SimulationNBodyOpenMP<float> simuTest(naiveAllocator, soft);
     simuTest.setDt(dt);
 
     const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();

@@ -33,8 +33,9 @@ __device__ __forceinline__ double device_rsqrt<double>(double val) { return rsqr
 
 template <typename T>
 SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
-        const BodiesAllocatorInterface<T>& allocator, const T soft)
-    : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}
+        const BodiesAllocatorInterface<T>& allocator, const T soft, const bool transfer_each_iteration)
+    : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}, 
+      transfer_each_iteration{transfer_each_iteration}
 {
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
 
@@ -78,6 +79,9 @@ void SimulationNBodyCUDATileFullDevice<T>::computeOneIteration()
     this->initIteration();
     this->computeBodiesAcceleration();
     this->cudaBodiesPtr->updatePositionsAndVelocitiesOnDevice(this->devAccelerations, this->dt);
+    if ( this->transfer_each_iteration ) {
+        this->cudaBodiesPtr->getDataSoA();
+    }
 }
 
 template <typename T>
