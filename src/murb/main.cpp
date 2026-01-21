@@ -22,6 +22,7 @@
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #include "implem/SimulationNBodyCUDATileAdvanced.hpp"
 #include "implem/SimulationNBodyNaive.hpp"
+#include "implem/SimulationNBodyNaiveCadna.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp"
 #include "implem/SimulationNBodyOptim.hpp"
 #include "implem/SimulationNBodySIMD.hpp"
@@ -84,6 +85,7 @@ void argsReader(int argc, char **argv)
                      "\t\t\t - \"cpu+optim\"\n"
                      "\t\t\t - \"cpu+openmp\"\n"
                      "\t\t\t - \"cpu+naive\"\n"
+                     "\t\t\t - \"cpu+cadna\"\n"
                      "\t\t\t - \"gpu+tile+full\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+advanced\"\n"
@@ -209,6 +211,9 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "cpu+omp") {
         simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
     }
+    else if (ImplTag == "cpu+cadna") {
+        simu = new SimulationNBodyNaiveCadna<T>(allocator, Softening);
+    }
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
@@ -313,7 +318,7 @@ int main(int argc, char **argv)
         perfTotal += perfIte;
 
         // compute the elapsed physic time
-        physicTime += simu->getDt();
+        physicTime += Dt;
 
         // display the status of this iteration
         if (Verbose) {

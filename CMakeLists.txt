@@ -29,7 +29,7 @@ message(STATUS "  * CMAKE_BUILD_TYPE: '${CMAKE_BUILD_TYPE}'")
 # Set the path to the CMake modules
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
-# Specify bin path
+
 set (EXECUTABLE_OUTPUT_PATH bin/)
 
 # Enable CUDA (nvcc)
@@ -178,3 +178,15 @@ if ((ENABLE_MURB_CUDA) AND (ENABLE_MURB))
     targets_compile_definitions("${murb_targets_list}" PRIVATE USE_CUDA)
 endif ()
 
+
+#macro (targets_compile_options targets privacy opts)
+#    foreach(_target IN ITEMS ${targets})
+#        target_compile_options(${_target} ${privacy} ${opts})
+#    endforeach()
+#endmacro()
+
+# --- CADNA ---
+#find_package(CADNA REQUIRED)
+#targets_compile_definitions("${murb_targets_list}" PRIVATE __CADNA__)
+#targets_compile_options("${murb_targets_list}" PRIVATE -frounding-math)
+#targets_link_libraries("${murb_targets_list}" PRIVATE CADNA::CADNA)
