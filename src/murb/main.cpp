@@ -18,14 +18,18 @@
 #include "utils/ArgumentsReader.hpp"
 #include "utils/Perf.hpp"
 
+#include "implem/SimulationNBodyNaive.hpp"
+#include "implem/SimulationNBodyOptim.hpp"
+#include "implem/SimulationNBodyOptim_Exact.hpp"
+#include "implem/SimulationNBodySIMD.hpp"
+#include "implem/SimulationNBodySIMD_Exact.hpp" 
+#include "implem/SimulationNBodyOpenMP.hpp"
+#include "implem/SimulationNBodyOpenMP_Exact.hpp" 
+#include "implem/SimulationNBodyOpenMP_Green.hpp" 
+#include "implem/SimulationNBodyHetero.hpp"
+#include "implem/SimulationNBodyMultiNode.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
-#include "implem/SimulationNBodyCUDATileAdvanced.hpp"
-#include "implem/SimulationNBodyNaive.hpp"
-#include "implem/SimulationNBodyNaiveCadna.hpp"
-#include "implem/SimulationNBodyOpenMP.hpp"
-#include "implem/SimulationNBodyOptim.hpp"
-#include "implem/SimulationNBodySIMD.hpp"
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -81,14 +85,18 @@ void argsReader(int argc, char **argv)
     docArgs["-nvc"] = "visualization without colors.";
     faculArgs["-im"] = "ImplTag";
     docArgs["-im"] = "code implementation tag:\n"
-                     "\t\t\t - \"cpu+simd\"\n"
-                     "\t\t\t - \"cpu+optim\"\n"
-                     "\t\t\t - \"cpu+openmp\"\n"
                      "\t\t\t - \"cpu+naive\"\n"
-                     "\t\t\t - \"cpu+cadna\"\n"
-                     "\t\t\t - \"gpu+tile+full\"\n"
+                     "\t\t\t - \"cpu+optim\"\n"
+                     "\t\t\t - \"cpu+optim+exact\" (Physicist Award)\n"
+                     "\t\t\t - \"cpu+simd\"\n"
+                     "\t\t\t - \"cpu+simd+exact\" (Physicist Award)\n"
+                     "\t\t\t - \"cpu+omp\" (Fastest CPU)\n"
+                     "\t\t\t - \"cpu+omp+exact\" (Physicist Award)\n"
+                     "\t\t\t - \"cpu+green\" (Artist Award)\n"
+                     "\t\t\t - \"hetero\"\n"
+                     "\t\t\t - \"mpi\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
-                     "\t\t\t - \"gpu+tile+advanced\"\n"
+                     "\t\t\t - \"gpu+tile+full\" (Fastest GPU)\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -202,17 +210,32 @@ SimulationNBodyInterface<T> *createImplem()
     if (ImplTag == "cpu+naive") {
         simu = new SimulationNBodyNaive<T>(allocator, Softening);
     }
-    else if (ImplTag == "cpu+simd") {
-        simu = new SimulationNBodySIMD<T>(allocator, Softening);
-    }
     else if (ImplTag == "cpu+optim") {
         simu = new SimulationNBodyOptim<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+simd") {
+        simu = new SimulationNBodySIMD<T>(allocator, Softening);
     }
     else if (ImplTag == "cpu+omp") {
         simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
     }
-    else if (ImplTag == "cpu+cadna") {
-        simu = new SimulationNBodyNaiveCadna<T>(allocator, Softening);
+    else if (ImplTag == "cpu+optim+exact") {
+        simu = new SimulationNBodyOptim_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+simd+exact") {
+        simu = new SimulationNBodySIMD_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+omp+exact") {
+        simu = new SimulationNBodyOpenMP_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+green" || ImplTag == "cpu+eco") {
+        simu = new SimulationNBodyOpenMP_Green<T>(allocator, Softening);
+    }
+    else if (ImplTag == "hetero") {
+        simu = new SimulationNBodyHetero<T>(allocator, Softening);
+    }
+    else if (ImplTag == "mpi") {
+        simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
@@ -220,9 +243,6 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
-    }
-    else if (ImplTag == "gpu+tile+advanced") {
-        simu = new SimulationNBodyCUDATileAdvanced<T>(allocator, Softening);
     }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
@@ -318,7 +338,7 @@ int main(int argc, char **argv)
         perfTotal += perfIte;
 
         // compute the elapsed physic time
-        physicTime += Dt;
+        physicTime += simu->getDt();
 
         // display the status of this iteration
         if (Verbose) {
