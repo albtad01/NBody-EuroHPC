@@ -54,13 +54,13 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
     SimulationNBodyNaive<float> simuRef(naiveAllocator, soft);
     simuRef.setDt(dt);
 
-    // CUDABodiesAllocator<float> cudaAllocator(n, scheme);
-    // SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
+    CUDABodiesAllocator<float> cudaAllocator(n, scheme);
+    SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
     // SimulationNBodyCUDATile<float> simuTest(naiveAllocator, soft);
 
     // SimulationNBodyOptim<float> simuTest(naiveAllocator, soft);
     // SimulationNBodySIMD<float> simuTest(naiveAllocator, soft);
-    SimulationNBodyOpenMP<float> simuTest(naiveAllocator, soft);
+    // SimulationNBodyOpenMP<float> simuTest(naiveAllocator, soft);
     simuTest.setDt(dt);
 
     const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();
@@ -96,7 +96,6 @@ TEST_CASE("n-body - Adv", "[adv]")
 {
 
     // ===================================== Random configuration ============================================
-    SECTION("fp32 - n=4096 - i=10 - random") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 10, "random", 1e-3); }
 
     // Harder tests: more bodies, more iterations, more accuracy
     SECTION("fp32 - n=4096 - i=20 - random") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 20, "random", 1e-5); }
@@ -105,11 +104,11 @@ TEST_CASE("n-body - Adv", "[adv]")
     // SECTION("fp32 - n=4096 - i=100 - random") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 1, "random", 1e-7); }
 
     // ===================================== Galaxy configuration ============================================
-    SECTION("fp32 - n=4096 - i=10 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 10, "galaxy", 1e-3); }
+    // SECTION("fp32 - n=4096 - i=10 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 10, "galaxy", 1e-3); }
 
     // Harder tests: more bodies, more iterations, more accuracy
     SECTION("fp32 - n=4096 - i=20 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 20, "galaxy", 1e-5); }
-    // SECTION("fp32 - n=4096 - i=20 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 20, "galaxy", 1e-6); }
+    // // SECTION("fp32 - n=4096 - i=20 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 20, "galaxy", 1e-6); }
     // SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 1, "galaxy", 5e-7); } // 16.01.2026 - CUDATile fails from here onwards
     // SECTION("fp32 - n=4096 - i=100 - galaxy") { test_nbody_gpufd_full_test(4096, 2e+08, 3600, 1, "galaxy", 1e-7); }
 }
