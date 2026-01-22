@@ -323,10 +323,14 @@ def main():
     # Parse energy log using parse_energy_log.py
     print(f"\nAnalyzing energy file: {energy_file}")
     report_file = im_path / 'energy_report.txt'
+    murb_log_file = im_path / 'murb.log'
     
     try:
-        result = subprocess.run(['python3', str(PARSE_ENERGY_SCRIPT), str(energy_file), str(report_file)],
-                              capture_output=True, text=True, check=True)
+        cmd = ['python3', str(PARSE_ENERGY_SCRIPT), str(energy_file), str(report_file)]
+        if murb_log_file.exists():
+            cmd.append(str(murb_log_file))
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)

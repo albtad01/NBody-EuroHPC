@@ -174,16 +174,18 @@ if ((ENABLE_MURB_OCL) AND (ENABLE_MURB))
     endif (OpenCL_FOUND)
 endif ()
 
+macro (targets_compile_options targets privacy opts)
+    foreach(_target IN ITEMS ${targets})
+        target_compile_options(${_target} ${privacy} ${opts})
+    endforeach()
+endmacro()
+
 if ((ENABLE_MURB_CUDA) AND (ENABLE_MURB))
     targets_compile_definitions("${murb_targets_list}" PRIVATE USE_CUDA)
+    targets_compile_options("${murb_targets_list}" PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>)
 endif ()
 
 
-#macro (targets_compile_options targets privacy opts)
-#    foreach(_target IN ITEMS ${targets})
-#        target_compile_options(${_target} ${privacy} ${opts})
-#    endforeach()
-#endmacro()
 
 # --- CADNA ---
 #find_package(CADNA REQUIRED)

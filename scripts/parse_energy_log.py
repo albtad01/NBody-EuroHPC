@@ -56,13 +56,14 @@ PARTITION_CONFIGS = {
 }
 
 
-def parse_energy_log(energy_file, report_file=None):
+def parse_energy_log(energy_file, report_file=None, murb_log_file=None):
     """
     Parse energy.log file and generate report.
     
     Args:
         energy_file: path to energy.log file
         report_file: path to output report file (if None, defaults to energy_report.txt)
+        murb_log_file: path to murb.log file for extracting FPS (optional)
         
     Returns:
         dict with parsed data and computed statistics
@@ -73,6 +74,32 @@ def parse_energy_log(energy_file, report_file=None):
     
     if report_file is None:
         report_file = energy_path.parent / "energy_report.txt"
+    
+    # Try to find and parse murb.log if not provided
+    fps = None
+    if murb_log_file is None:
+        # Try to find murb.log in the same directory as energy.log
+        potential_murb_log = energy_path.parent / "murb.log"
+        if potential_murb_log.exists():
+            murb_log_file = potential_murb_log
+    
+    # Extract FPS from murb.log
+    if murb_log_file:
+        murb_log_path = Path(murb_log_file)
+        if murb_log_path.exists():
+            try:
+                with open(murb_log_path) as f:
+                    for line in f:
+                        # Line format: "Entire simulation took 14243.4 ms (7.02077 FPS)"
+                        if "Entire simulation took" in line and "FPS" in line:
+                            # Extract FPS value using regex
+                            fps_match = re.search(r'\(([0-9.]+)\s+FPS\)', line)
+                            if fps_match:
+                                fps = float(fps_match.group(1))
+                                break
+            except Exception as e:
+                # If we can't read murb.log, just continue without FPS
+                pass
     
     # Parse header for wallclock times and partition
     start_wall = None
@@ -259,6 +286,15 @@ def parse_energy_log(energy_file, report_file=None):
     report_lines.append(f'  Samples per second (approx): {n/total_time if total_time > 0 else 0.0:.3f}')
     report_lines.append(f'  TOTAL POWER min/max: {pmin(total_vals):.3f}/{pmax(total_vals):.3f} W')
     report_lines.append(f'  Energy variance (per-timestamp): {pvar(energy_per_ts):.6f} (J^2)')
+    if fps is not None:
+        mean_power = avg(total_vals)
+        if mean_power > 0:
+            fps_per_watt = fps / mean_power
+            report_lines.append(f'  FPS/Watt (avg): {fps_per_watt:.6f} FPS/W')
+            report_lines.append(f'  FPS (from murb.log): {fps:.5f}')
+        else:
+            report_lines.append(f'  FPS/Watt (avg): N/A (mean power = 0)')
+            report_lines.append(f'  FPS (from murb.log): {fps:.5f}')
     
     # Write report
     with open(report_file, 'w') as out:
@@ -292,6 +328,8 @@ def parse_energy_log(energy_file, report_file=None):
             'TOTAL': total_energy_all,
             'variance_per_ts': pvar(energy_per_ts),
         },
+        'fps': fps,
+        'fps_per_watt': (fps / avg(total_vals)) if (fps is not None and avg(total_vals) > 0) else None,
         'report_file': str(report_file),
         'report_text': '\n'.join(report_lines),
     }
@@ -304,9 +342,10 @@ if __name__ == '__main__':
     
     energy_log = sys.argv[1]
     report_out = sys.argv[2] if len(sys.argv) > 2 else None
+    murb_log = sys.argv[3] if len(sys.argv) > 3 else None
     
     try:
-        result = parse_energy_log(energy_log, report_out)
+        result = parse_energy_log(energy_log, report_out, murb_log)
         print(result['report_text'])
         print(f"\nReport written to {result['report_file']}")
     except (FileNotFoundError, ValueError) as e:
