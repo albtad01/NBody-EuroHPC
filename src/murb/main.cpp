@@ -27,7 +27,7 @@
 #include "implem/SimulationNBodyOpenMP_Exact.hpp" 
 #include "implem/SimulationNBodyOpenMP_Green.hpp" 
 #include "implem/SimulationNBodyHetero.hpp"
-#include "implem/SimulationNBodyMultiNode.hpp"
+// #include "implem/SimulationNBodyMultiNode.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 
@@ -87,16 +87,16 @@ void argsReader(int argc, char **argv)
     docArgs["-im"] = "code implementation tag:\n"
                      "\t\t\t - \"cpu+naive\"\n"
                      "\t\t\t - \"cpu+optim\"\n"
-                     "\t\t\t - \"cpu+optim+exact\" (Physicist Award)\n"
+                     "\t\t\t - \"cpu+optim+exact\n" 
                      "\t\t\t - \"cpu+simd\"\n"
-                     "\t\t\t - \"cpu+simd+exact\" (Physicist Award)\n"
-                     "\t\t\t - \"cpu+omp\" (Fastest CPU)\n"
-                     "\t\t\t - \"cpu+omp+exact\" (Physicist Award)\n"
-                     "\t\t\t - \"cpu+green\" (Artist Award)\n"
+                     "\t\t\t - \"cpu+simd+exact\n" 
+                     "\t\t\t - \"cpu+omp\n"
+                     "\t\t\t - \"cpu+omp+exact\n"
+                     "\t\t\t - \"cpu+green\n"
                      "\t\t\t - \"hetero\"\n"
-                     "\t\t\t - \"mpi\"\n"
+                    //  "\t\t\t - \"mpi\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
-                     "\t\t\t - \"gpu+tile+full\" (Fastest GPU)\n"
+                     "\t\t\t - \"gpu+tile+full\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -234,9 +234,9 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "hetero") {
         simu = new SimulationNBodyHetero<T>(allocator, Softening);
     }
-    else if (ImplTag == "mpi") {
-        simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
-    }
+    // else if (ImplTag == "mpi") {
+    //     simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+    // }
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
