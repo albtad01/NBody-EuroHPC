@@ -1,14 +1,15 @@
-#ifndef SIMULATION_N_BODY_CUDA_TILE_FULL_DEVICE_HPP_
-#define SIMULATION_N_BODY_CUDA_TILE_FULL_DEVICE_HPP_
+#ifndef SIMULATION_N_BODY_CUDA_PROPERTY_TRACKING_HPP_
+#define SIMULATION_N_BODY_CUDA_PROPERTY_TRACKING_HPP_
 
 #include <string>
 #include <vector>
 
 #include "core/SimulationNBodyInterface.hpp"
 #include "core/CUDABodies.hpp"
+#include "core/HistoryTrackingInterface.hpp"
 
 template <typename T>
-class SimulationNBodyCUDATileFullDevice : public SimulationNBodyInterface<T> {
+class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, GPUHistoryTrackingInterface<T> {
   protected:
     std::shared_ptr<CUDABodies<T>> cudaBodiesPtr;
     devAccSoA_t<T> devAccelerations;
@@ -18,10 +19,12 @@ class SimulationNBodyCUDATileFullDevice : public SimulationNBodyInterface<T> {
     bool const transfer_each_iteration;
     int _num_threads, _num_blocks, _elem_per_thread;
   public:
-    SimulationNBodyCUDATileFullDevice(const BodiesAllocatorInterface<T>& allocator, 
+    SimulationNBodyCUDAPropertyTracking(const BodiesAllocatorInterface<T>& allocator, 
+        GPUSimulationHistory<T>& history, 
         const T soft = 0.035f, const bool transfer_each_iteration = false);
-    virtual ~SimulationNBodyCUDATileFullDevice();
+    virtual ~SimulationNBodyCUDAPropertyTracking();
     virtual void computeOneIteration();
+    virtual void computeMetrics();
     const accSoA_t<T>& getAccSoA();
 
   protected:

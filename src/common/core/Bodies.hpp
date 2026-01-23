@@ -84,6 +84,7 @@ template <typename T> class Bodies {
     unsigned short padding;            /*!< Number of fictional bodies to fill the last vector. */
     float allocatedBytes;              /*!< Number of allocated bytes. */
 
+
   public:
     /*!
      *  \brief Constructor.

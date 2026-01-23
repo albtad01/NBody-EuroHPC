@@ -19,12 +19,12 @@ inline void cuda_check(cudaError_t error_code, const char *file, int line)
     if (error_code != cudaSuccess)
     {
         fprintf(stderr, "CUDA Error %d: %s. In file '%s' on line %d\n", error_code, cudaGetErrorString(error_code), file, line);
-        printf("CUDA Error %d: %s. In file '%s' on line %d\n", error_code, cudaGetErrorString(error_code), file, line);
         fflush(stderr);
         exit(error_code);
     }
 }
 
+// =================================== TEMPLATE of SQRT ====================================
 template <typename T>
 __device__ __forceinline__ T device_rsqrt(T val);
 
@@ -33,6 +33,18 @@ __device__ __forceinline__ float device_rsqrt<float>(float val) { return rsqrtf(
 
 template <>
 __device__ __forceinline__ double device_rsqrt<double>(double val) { return rsqrt(val); }
+
+// ============================= CONSTRUCTOR & its UTILITIES ================================
+
+template <typename T> 
+__global__ void devInitializeDevGM(const devDataSoA_t<T> devDataSoA, const int n_bodies, T G, T* devGM, const int elem_per_thread) {
+    for (int k = 0; k < elem_per_thread; k++) {
+        const int iBody = blockIdx.x * blockDim.x * elem_per_thread + threadIdx.x + k * blockDim.x;
+        if ( iBody < n_bodies ) {
+            devGM[iBody] = G * devDataSoA.m[iBody];
+        }
+    }
+}
 
 template <typename T>
 SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
@@ -61,11 +73,12 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.ax, this->getBodies()->getN()*sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.ay, this->getBodies()->getN()*sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.az, this->getBodies()->getN()*sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devGM, this->getBodies()->getN()*sizeof(T)));
 
-    std::cout << "Number of threads: " << _num_threads << std::endl;
-    std::cout << "Number of blocks: " << _num_blocks << std::endl;
-    std::cout << "Element per thread: " << _elem_per_thread << std::endl;
-    std::cout << "Total desired bodies: " << total_threads * this->_elem_per_thread << std::endl;
+    // std::cout << "Number of threads: " << _num_threads << std::endl;
+    // std::cout << "Number of blocks: " << _num_blocks << std::endl;
+    // std::cout << "Element per thread: " << _elem_per_thread << std::endl;
+    // std::cout << "Total desired bodies: " << total_threads * this->_elem_per_thread << std::endl;
 
     this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
 
@@ -73,11 +86,14 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
         std::cout << "Error in converting to CUDABodies!!!" << std::endl;
     }
 
-    cudaDeviceProp prop;
-    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
-    size_t l2_size = prop.l2CacheSize;
+    // cudaDeviceProp prop;
+    // CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+    // size_t l2_size = prop.l2CacheSize;
 
-    CUDA_CHECK(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, l2_size));
+    // CUDA_CHECK(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, l2_size));
+
+    devInitializeDevGM<T><<<this->_num_blocks,this->_num_threads>>>(this->cudaBodiesPtr->getDevDataSoA(), 
+        this->bodies->getN(),this->G,this->devGM,this->_elem_per_thread);
 }
 
 // template <typename T>
@@ -116,84 +132,86 @@ void SimulationNBodyCUDATileFullDevice<T>::computeOneIteration()
 
 // Old version before switching to multiple bodies per each thread
 // WARNING: it works the best on -n 200k
-// template <typename T>
-// __global__ void devComputeBodiesAccelerationTileFullDevice(
-//     devAccSoA_t<T> devAccelerations, 
-//     const devDataSoA_t<T> devDataSoA,
-//     const int n_bodies,
-//     const T G,
-//     const T softSquared
-// ) {
-//     constexpr int TILE_SIZE = 1024;
+template <typename T>
+__global__ void devComputeBodiesAccelerationTileFullDevice200k(
+    devAccSoA_t<T> devAccelerations, 
+    const devDataSoA_t<T> devDataSoA,
+    T* devGM,
+    const int n_bodies,
+    const T G,
+    const T softSquared
+) {
+    constexpr int TILE_SIZE = 1024;
 
-//     __shared__ T SHm[TILE_SIZE];
-//     __shared__ T SHqx[TILE_SIZE];
-//     __shared__ T SHqy[TILE_SIZE];
-//     __shared__ T SHqz[TILE_SIZE];
+    __shared__ T SHm[TILE_SIZE];
+    __shared__ T SHqx[TILE_SIZE];
+    __shared__ T SHqy[TILE_SIZE];
+    __shared__ T SHqz[TILE_SIZE];
 
-//     int iBody = blockIdx.x * blockDim.x + threadIdx.x;
+    int iBody = blockIdx.x * blockDim.x + threadIdx.x;
 
-//     T accX = T(0), accY = T(0), accZ = T(0);
+    T accX = T(0), accY = T(0), accZ = T(0);
 
-//     T rix = T(0), riy = T(0), riz = T(0);
-//     if (iBody < n_bodies) {
-//         rix = devDataSoA.qx[iBody];
-//         riy = devDataSoA.qy[iBody];
-//         riz = devDataSoA.qz[iBody];
-//     }
+    T rix = T(0), riy = T(0), riz = T(0);
+    if (iBody < n_bodies) {
+        rix = devDataSoA.qx[iBody];
+        riy = devDataSoA.qy[iBody];
+        riz = devDataSoA.qz[iBody];
+    }
 
-//     for (int base_idx = 0; base_idx < n_bodies; base_idx += TILE_SIZE) {
-//         for (int i = threadIdx.x; i < TILE_SIZE; i += blockDim.x) {
-//             int gg_idx = base_idx + i;
-//             if (gg_idx < n_bodies) {
-//                 SHm[i]  = devDataSoA.m[gg_idx];
-//                 SHqx[i] = devDataSoA.qx[gg_idx];
-//                 SHqy[i] = devDataSoA.qy[gg_idx];
-//                 SHqz[i] = devDataSoA.qz[gg_idx];
-//             } else {
-//                 SHm[i]  = T(0);
-//                 SHqx[i] = T(0);
-//                 SHqy[i] = T(0);
-//                 SHqz[i] = T(0);
-//             }
-//         }
+    for (int base_idx = 0; base_idx < n_bodies; base_idx += TILE_SIZE) {
+        for (int i = threadIdx.x; i < TILE_SIZE; i += blockDim.x) {
+            int gg_idx = base_idx + i;
+            if (gg_idx < n_bodies) {
+                SHm[i]  = devGM[gg_idx];
+                SHqx[i] = devDataSoA.qx[gg_idx];
+                SHqy[i] = devDataSoA.qy[gg_idx];
+                SHqz[i] = devDataSoA.qz[gg_idx];
+            } else {
+                SHm[i]  = T(0);
+                SHqx[i] = T(0);
+                SHqy[i] = T(0);
+                SHqz[i] = T(0);
+            }
+        }
 
-//         __syncthreads();
+        __syncthreads();
 
-//         if (iBody < n_bodies) {
+        if (iBody < n_bodies) {
             
-//             #pragma unroll 32
-//             for (int jBody = 0; jBody < TILE_SIZE; jBody++) {
-//                 const T rijx = SHqx[jBody] - rix;
-//                 const T rijy = SHqy[jBody] - riy;
-//                 const T rijz = SHqz[jBody] - riz;
+            #pragma unroll 32
+            for (int jBody = 0; jBody < TILE_SIZE; jBody++) {
+                const T rijx = SHqx[jBody] - rix;
+                const T rijy = SHqy[jBody] - riy;
+                const T rijz = SHqz[jBody] - riz;
 
-//                 const T rijSquared = rijx * rijx + rijy * rijy + rijz * rijz;
+                const T rijSquared = rijx * rijx + rijy * rijy + rijz * rijz;
 
-//                 const T inv = device_rsqrt<T>(rijSquared + softSquared);
-//                 const T factor = G * (inv * inv * inv);
+                const T inv = device_rsqrt<T>(rijSquared + softSquared);
+                const T factor = inv * inv * inv;
                 
-//                 const T ai = factor * SHm[jBody];
-//                 accX += ai * rijx;
-//                 accY += ai * rijy;
-//                 accZ += ai * rijz;
-//             }
-//         }
+                const T ai = factor * SHm[jBody];
+                accX += ai * rijx;
+                accY += ai * rijy;
+                accZ += ai * rijz;
+            }
+        }
 
-//         __syncthreads();
-//     }
+        __syncthreads();
+    }
 
-//     if (iBody < n_bodies) {
-//         devAccelerations.ax[iBody] = accX;
-//         devAccelerations.ay[iBody] = accY;
-//         devAccelerations.az[iBody] = accZ;
-//     }
-// }
+    if (iBody < n_bodies) {
+        devAccelerations.ax[iBody] = accX;
+        devAccelerations.ay[iBody] = accY;
+        devAccelerations.az[iBody] = accZ;
+    }
+}
 
 template <typename T>
 __global__ void devComputeBodiesAccelerationTileFullDevice(
     devAccSoA_t<T> devAccelerations, 
     const devDataSoA_t<T> devDataSoA,
+    const T* devGM,
     const int n_bodies,
     const T G,
     const T softSquared,
@@ -224,7 +242,7 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
             for (int i = threadIdx.x; i < TILE_SIZE; i += blockDim.x) {
                 int gg_idx = base_idx + i;
                 if (gg_idx < n_bodies) {
-                    SHm[i]  = devDataSoA.m[gg_idx];
+                    SHm[i]  = devGM[gg_idx];
                     SHqx[i] = devDataSoA.qx[gg_idx];
                     SHqy[i] = devDataSoA.qy[gg_idx];
                     SHqz[i] = devDataSoA.qz[gg_idx];
@@ -247,12 +265,15 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
                     const T rijSquared = rijx*rijx + rijy*rijy + rijz*rijz;
 
                     const T inv = device_rsqrt<T>(rijSquared + softSquared);
-                    const T factor = G * (inv * inv * inv);
+                    const T ai = inv * inv * inv * SHm[jBody];
 
-                    const T ai = factor * SHm[jBody];
                     accX += ai * rijx;
                     accY += ai * rijy;
                     accZ += ai * rijz;
+
+                    #ifdef COMPUTE_ENERGY
+                    
+                    #endif
                 }
             }
             __syncthreads();
@@ -333,7 +354,7 @@ __global__ void devComputeBodiesAccelerationTileFullDevice_2elem(
                     const T rijSquared1 = rijx1*rijx1 + rijy1*rijy1 + rijz1*rijz1;
 
                     const T inv1 = device_rsqrt<T>(rijSquared1 + softSquared);
-                    const T factor1 = G * (inv1 * inv1 * inv1);
+                    const T factor1 = inv1 * inv1 * inv1;
 
                     const T ai1 = factor1 * SHm[jBody];
                     accX1 += ai1 * rijx1;
@@ -348,7 +369,7 @@ __global__ void devComputeBodiesAccelerationTileFullDevice_2elem(
                     const T rijSquared2 = rijx2*rijx2 + rijy2*rijy2 + rijz2*rijz2;
 
                     const T inv2 = device_rsqrt<T>(rijSquared2 + softSquared);
-                    const T factor2 = G * (inv2 * inv2 * inv2);
+                    const T factor2 = inv2 * inv2 * inv2;
 
                     const T ai2 = factor2 * SHm[jBody];
                     accX2 += ai2 * rijx2;
@@ -407,9 +428,19 @@ void SimulationNBodyCUDATileFullDevice<T>::computeBodiesAcceleration()
         devComputeBodiesAccelerationTileFullDevice<T><<<this->_num_blocks, this->_num_threads>>>(
                                                 this->devAccelerations,
                                                 this->cudaBodiesPtr->getDevDataSoA(),
+                                                this->devGM,
                                                 this->bodies->getN(), this->G, this->softSquared,
                                                 this->_elem_per_thread);
     // }
+
+        // int n = (int)this->getBodies()->getN();
+        // int threads = 1024; 
+        // int blocks = (n + threads - 1) / threads;  
+        // devComputeBodiesAccelerationTileFullDevice200k<T><<<blocks,threads>>>(
+        //                                         this->devAccelerations,
+        //                                         this->cudaBodiesPtr->getDevDataSoA(),
+        //                                         this->devGM,
+        //                                         this->bodies->getN(), this->G, this->softSquared);
 
     CUDA_CHECK(cudaGetLastError());
 }
