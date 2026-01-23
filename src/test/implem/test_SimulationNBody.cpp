@@ -14,6 +14,7 @@
 #include "SimulationNBodyOpenMP.hpp"
 #include "SimulationNBodyCUDATile.hpp"
 #include "SimulationNBodyCUDATileFullDevice.hpp"
+#include "SimulationNBodyCUDAPropertyTracking.hpp"
 
 template <typename T>
 void compare_arrays(const T* a1, const T* a2, int n) {
@@ -55,7 +56,9 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
     simuRef.setDt(dt);
 
     CUDABodiesAllocator<float> cudaAllocator(n, scheme);
-    SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
+    // SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
+    GPUSimulationHistory<float> history(nIte);
+    SimulationNBodyCUDAPropertyTracking<float> simuTest(cudaAllocator, history, soft);
     // SimulationNBodyCUDATile<float> simuTest(naiveAllocator, soft);
 
     // SimulationNBodyOptim<float> simuTest(naiveAllocator, soft);

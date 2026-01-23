@@ -15,6 +15,7 @@
 #include <string>
 
 #include <cuda_runtime.h>
+#include <cub/cub.cuh>
 
 #include "SimulationNBodyCUDAPropertyTracking.hpp"
 
@@ -83,6 +84,8 @@ SimulationNBodyCUDAPropertyTracking<T>::SimulationNBodyCUDAPropertyTracking(
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.az, this->getBodies()->getN()*sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devGM, this->getBodies()->getN()*sizeof(T)));
 
+    CUDA_CHECK(cudaMalloc(&this->bufferForEnergy, this->getBodies()->getN()*sizeof(T)));
+
     this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
 
     if ( this->cudaBodiesPtr == nullptr ) {
@@ -104,10 +107,12 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeOneIteration()
 {
     this->initIteration();
     this->computeBodiesAcceleration();
+    this->computeMetrics();
     this->cudaBodiesPtr->updatePositionsAndVelocitiesOnDevice(this->devAccelerations, this->dt);
     if ( this->transfer_each_iteration ) {
         this->cudaBodiesPtr->getDataSoA();
     }
+    this->currentIteration++;
 }
 
 template <typename T>
@@ -118,13 +123,22 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
     const int n_bodies,
     const T softSquared,
     const int elem_per_thread,
+    const int iteration,
     T* devEnergies,
     T* devAngMomentums,
     T* devDensityCentersX,
     T* devDensityCentersY,
-    T* devDensityCentersZ
+    T* devDensityCentersZ,
+    T* bufferForEnergy
 ){
-    static int iteration = 0;
+    T potential_energy = 0;
+    T kinetik_energy = 0;
+    T local_ang_momentum = 0;
+    T local_density_centerX = 0;
+    T local_density_centerY = 0;
+    T local_density_centerZ = 0;
+
+
     constexpr int N = 1;
     constexpr int TILE_SIZE = N * 1024;
 
@@ -133,12 +147,14 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
     __shared__ T SHqy[TILE_SIZE];
     __shared__ T SHqz[TILE_SIZE];
 
+
     for (int k = 0; k < elem_per_thread; k++) {
         const int iBody = blockIdx.x * blockDim.x * elem_per_thread + threadIdx.x + k * blockDim.x;
-        
+
         T accX = T(0), accY = T(0), accZ = T(0);
         T rix = T(0), riy = T(0), riz = T(0);
         
+        const T iBodyMass = devDataSoA.m[iBody];
         if (iBody < n_bodies) {
             rix = devDataSoA.qx[iBody];
             riy = devDataSoA.qy[iBody];
@@ -178,6 +194,8 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
                     accX += ai * rijx;
                     accY += ai * rijy;
                     accZ += ai * rijz;
+
+                    potential_energy -= iBodyMass * SHm[jBody] * inv;
                 }
             }
             __syncthreads();
@@ -187,6 +205,22 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
             devAccelerations.ax[iBody] = accX;
             devAccelerations.ay[iBody] = accY;
             devAccelerations.az[iBody] = accZ;
+
+            #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ENERGY_METRIC)
+                const T iBodyVelx = devDataSoA.vx[iBody];
+                const T iBodyVely = devDataSoA.vy[iBody];
+                const T iBodyVelz = devDataSoA.vz[iBody];
+                // kinetik energy
+                potential_energy -= iBodyMass * iBodyMass / sqrt(softSquared);
+                kinetik_energy += iBodyMass * (iBodyVelx*iBodyVelx + iBodyVely*iBodyVely + iBodyVelz*iBodyVelz);
+                bufferForEnergy[iBody] = potential_energy + kinetik_energy/2;
+            #endif
+            #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ANGMOMENTUM_METRIC)
+
+            #endif
+            #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_DENSITY_CENTER_METRIC)
+
+            #endif
         }
     }
 }
@@ -213,23 +247,47 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeBodiesAcceleration()
                                             this->devGM,
                                             this->bodies->getN(), this->softSquared,
                                             this->_elem_per_thread,
+                                            this->currentIteration,
                                             this->history.getDevEnergy(),
                                             this->history.getDevAngMomentum(),
                                             this->history.getDevDensityCentersX(),
                                             this->history.getDevDensityCentersY(),
-                                            this->history.getDevDensityCentersZ()
+                                            this->history.getDevDensityCentersZ(),
+                                            this->bufferForEnergy
                                         );
     CUDA_CHECK(cudaGetLastError());
 }
 
 template <typename T>
-__global__ void devComputeMetrics(devDataSoA_t<T> devDataSoA) {
-
-}
-
-template <typename T>
 void SimulationNBodyCUDAPropertyTracking<T>::computeMetrics() {
-    
+    #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ENERGY_METRIC)
+        void* d_temp = nullptr;
+        size_t temp_bytes = 0;
+
+        int numItems = this->bodies->getN();
+
+        // query
+        cub::DeviceReduce::Sum(
+            d_temp, temp_bytes,
+            bufferForEnergy,
+            &(this->history.getDevEnergy()[this->currentIteration]),
+            numItems
+        );
+
+        // alloc
+        cudaMalloc(&d_temp, temp_bytes);
+
+        // run
+        cub::DeviceReduce::Sum(
+            d_temp, temp_bytes,
+            bufferForEnergy,
+            &(this->history.getDevEnergy()[this->currentIteration]),
+            numItems
+        );
+
+        cudaFree(d_temp);
+
+    #endif
 }
 
 template <typename T>
@@ -237,6 +295,7 @@ SimulationNBodyCUDAPropertyTracking<T>::~SimulationNBodyCUDAPropertyTracking() {
     CUDA_CHECK(cudaFree(devAccelerations.ax));
     CUDA_CHECK(cudaFree(devAccelerations.ay));
     CUDA_CHECK(cudaFree(devAccelerations.az));
+    CUDA_CHECK(cudaFree(this->bufferForEnergy));
 }
 
 template class SimulationNBodyCUDAPropertyTracking<float>;

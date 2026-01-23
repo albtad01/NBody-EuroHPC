@@ -30,6 +30,7 @@
 // #include "implem/SimulationNBodyMultiNode.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
+#include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -97,6 +98,7 @@ void argsReader(int argc, char **argv)
                     //  "\t\t\t - \"mpi\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+full\n"
+                     "\t\t\t - \"gpu+tracking\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -243,6 +245,13 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
+    }
+    else if (ImplTag == "gpu+tracking") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        GPUSimulationHistory<T> history(NIterations);
+        simu = new SimulationNBodyCUDAPropertyTracking<T>(cudaAllocator, 
+                                                          history,   
+                                                          Softening);
     }
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;

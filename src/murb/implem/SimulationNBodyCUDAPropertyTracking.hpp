@@ -18,6 +18,8 @@ class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, 
     const T softSquared;
     bool const transfer_each_iteration;
     int _num_threads, _num_blocks, _elem_per_thread;
+    T* bufferForEnergy;
+    int currentIteration = 0;
   public:
     SimulationNBodyCUDAPropertyTracking(const BodiesAllocatorInterface<T>& allocator, 
         GPUSimulationHistory<T>& history, 
