@@ -81,7 +81,7 @@ OGLSpheresVisu<T>::OGLSpheresVisu(const std::string winName, const int winWidth,
         glBufferData(GL_ARRAY_BUFFER, this->nSpheres * sizeof(GLfloat), this->radiusBuffer, GL_STATIC_DRAW);
 
         // set background color to black
-        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
 
         // Create a control object in order to use mouse and keyboard (move in space)
         this->control = new OGLControl(this->window);
