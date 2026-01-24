@@ -53,12 +53,12 @@ __global__ void devInitializeDevGM(const devDataSoA_t<T> devDataSoA, const int n
     }
 }
 
-template <typename T>
-SimulationNBodyCUDAPropertyTracking<T>::SimulationNBodyCUDAPropertyTracking(
+template <typename T, typename Q>
+SimulationNBodyCUDAPropertyTracking<T,Q>::SimulationNBodyCUDAPropertyTracking(
         const BodiesAllocatorInterface<T>& allocator,  
-        GPUSimulationHistory<T>& history, const T soft, const bool transfer_each_iteration)
+        std::shared_ptr<GPUSimulationHistory<Q>> history, const T soft, const bool transfer_each_iteration)
     : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}, 
-      GPUHistoryTrackingInterface<T>(history),
+      GPUHistoryTrackingInterface<Q>(history),
       transfer_each_iteration{transfer_each_iteration}
 {
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
@@ -94,17 +94,19 @@ SimulationNBodyCUDAPropertyTracking<T>::SimulationNBodyCUDAPropertyTracking(
 
     devInitializeDevGM<T><<<this->_num_blocks,this->_num_threads>>>(this->cudaBodiesPtr->getDevDataSoA(), 
         this->bodies->getN(),this->G,this->devGM,this->_elem_per_thread);
+
 }
 
 
-template <typename T>
-void SimulationNBodyCUDAPropertyTracking<T>::initIteration()
+template <typename T, typename Q>
+void SimulationNBodyCUDAPropertyTracking<T,Q>::initIteration()
 {
 }
 
-template <typename T>
-void SimulationNBodyCUDAPropertyTracking<T>::computeOneIteration()
+template <typename T, typename Q>
+void SimulationNBodyCUDAPropertyTracking<T,Q>::computeOneIteration()
 {
+
     this->initIteration();
     this->computeBodiesAcceleration();
     this->computeMetrics();
@@ -112,10 +114,11 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeOneIteration()
     if ( this->transfer_each_iteration ) {
         this->cudaBodiesPtr->getDataSoA();
     }
+    this->history->copyFromDevice();
     this->currentIteration++;
 }
 
-template <typename T>
+template <typename T, typename Q=T>
 __global__ void devComputeBodiesAccelerationPropertyTracking(
     devAccSoA_t<T> devAccelerations, 
     const devDataSoA_t<T> devDataSoA,
@@ -124,19 +127,25 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
     const T softSquared,
     const int elem_per_thread,
     const int iteration,
-    T* devEnergies,
-    T* devAngMomentums,
-    T* devDensityCentersX,
-    T* devDensityCentersY,
-    T* devDensityCentersZ,
-    T* bufferForEnergy
+    Q* devEnergies,
+    Q* devAngMomentums,
+    Q* devDensityCentersX,
+    Q* devDensityCentersY,
+    Q* devDensityCentersZ,
+    Q* bufferForEnergy
 ){
-    T potential_energy = 0;
-    T kinetik_energy = 0;
-    T local_ang_momentum = 0;
-    T local_density_centerX = 0;
-    T local_density_centerY = 0;
-    T local_density_centerZ = 0;
+    #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ENERGY_METRIC)
+    Q potential_energy = 0;
+    Q kinetik_energy = 0;
+    #endif
+    #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ANGMOMENTUM_METRIC)
+    Q local_ang_momentum = 0;
+    #endif
+    #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_DENSITY_CENTER_METRIC)
+    Q local_density_centerX = 0;
+    Q local_density_centerY = 0;
+    Q local_density_centerZ = 0;
+    #endif
 
 
     constexpr int N = 1;
@@ -154,8 +163,9 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
         T accX = T(0), accY = T(0), accZ = T(0);
         T rix = T(0), riy = T(0), riz = T(0);
         
-        const T iBodyMass = devDataSoA.m[iBody];
+        T iBodyMass;
         if (iBody < n_bodies) {
+            iBodyMass = devDataSoA.m[iBody];
             rix = devDataSoA.qx[iBody];
             riy = devDataSoA.qy[iBody];
             riz = devDataSoA.qz[iBody];
@@ -195,7 +205,9 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
                     accY += ai * rijy;
                     accZ += ai * rijz;
 
+                    #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ENERGY_METRIC)
                     potential_energy -= iBodyMass * SHm[jBody] * inv;
+                    #endif
                 }
             }
             __syncthreads();
@@ -211,7 +223,6 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
                 const T iBodyVely = devDataSoA.vy[iBody];
                 const T iBodyVelz = devDataSoA.vz[iBody];
                 // kinetik energy
-                potential_energy -= iBodyMass * iBodyMass / sqrt(softSquared);
                 kinetik_energy += iBodyMass * (iBodyVelx*iBodyVelx + iBodyVely*iBodyVely + iBodyVelz*iBodyVelz);
                 bufferForEnergy[iBody] = potential_energy + kinetik_energy/2;
             #endif
@@ -225,8 +236,8 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
     }
 }
 
-template <typename T> 
-const accSoA_t<T>& SimulationNBodyCUDAPropertyTracking<T>::getAccSoA() {
+template <typename T, typename Q>
+const accSoA_t<T>& SimulationNBodyCUDAPropertyTracking<T,Q>::getAccSoA() {
     accSoA.ax.resize(this->getBodies()->getN());
     accSoA.ay.resize(this->getBodies()->getN());
     accSoA.az.resize(this->getBodies()->getN());
@@ -238,28 +249,28 @@ const accSoA_t<T>& SimulationNBodyCUDAPropertyTracking<T>::getAccSoA() {
     return accSoA;
 }
 
-template <typename T>
-void SimulationNBodyCUDAPropertyTracking<T>::computeBodiesAcceleration()
+template <typename T, typename Q>
+void SimulationNBodyCUDAPropertyTracking<T,Q>::computeBodiesAcceleration()
 {
-    devComputeBodiesAccelerationPropertyTracking<T><<<this->_num_blocks, this->_num_threads>>>(
+    devComputeBodiesAccelerationPropertyTracking<T,Q><<<this->_num_blocks, this->_num_threads>>>(
                                             this->devAccelerations,
                                             this->cudaBodiesPtr->getDevDataSoA(),
                                             this->devGM,
                                             this->bodies->getN(), this->softSquared,
                                             this->_elem_per_thread,
                                             this->currentIteration,
-                                            this->history.getDevEnergy(),
-                                            this->history.getDevAngMomentum(),
-                                            this->history.getDevDensityCentersX(),
-                                            this->history.getDevDensityCentersY(),
-                                            this->history.getDevDensityCentersZ(),
+                                            this->history->getDevEnergy(),
+                                            this->history->getDevAngMomentum(),
+                                            this->history->getDevDensityCentersX(),
+                                            this->history->getDevDensityCentersY(),
+                                            this->history->getDevDensityCentersZ(),
                                             this->bufferForEnergy
                                         );
     CUDA_CHECK(cudaGetLastError());
 }
 
-template <typename T>
-void SimulationNBodyCUDAPropertyTracking<T>::computeMetrics() {
+template <typename T, typename Q>
+void SimulationNBodyCUDAPropertyTracking<T,Q>::computeMetrics() {
     #if defined(COMPUTE_ALL_METRICS) || defined(COMPUTE_ENERGY_METRIC)
         void* d_temp = nullptr;
         size_t temp_bytes = 0;
@@ -270,7 +281,7 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeMetrics() {
         cub::DeviceReduce::Sum(
             d_temp, temp_bytes,
             bufferForEnergy,
-            &(this->history.getDevEnergy()[this->currentIteration]),
+            &(this->history->getDevEnergy()[this->currentIteration]),
             numItems
         );
 
@@ -281,7 +292,7 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeMetrics() {
         cub::DeviceReduce::Sum(
             d_temp, temp_bytes,
             bufferForEnergy,
-            &(this->history.getDevEnergy()[this->currentIteration]),
+            &(this->history->getDevEnergy()[this->currentIteration]),
             numItems
         );
 
@@ -290,15 +301,16 @@ void SimulationNBodyCUDAPropertyTracking<T>::computeMetrics() {
     #endif
 }
 
-template <typename T>
-SimulationNBodyCUDAPropertyTracking<T>::~SimulationNBodyCUDAPropertyTracking() {
+template <typename T, typename Q>
+SimulationNBodyCUDAPropertyTracking<T,Q>::~SimulationNBodyCUDAPropertyTracking() {
     CUDA_CHECK(cudaFree(devAccelerations.ax));
     CUDA_CHECK(cudaFree(devAccelerations.ay));
     CUDA_CHECK(cudaFree(devAccelerations.az));
     CUDA_CHECK(cudaFree(this->bufferForEnergy));
 }
 
-template class SimulationNBodyCUDAPropertyTracking<float>;
+template class SimulationNBodyCUDAPropertyTracking<float, double>;
+template class SimulationNBodyCUDAPropertyTracking<float, float>;
 // template class SimulationNBodyCUDAPropertyTracking<double>;
 
 #endif

@@ -159,3 +159,5 @@ void MultiGalaxySimulationHistory<T,numGalaxies, noIndData>::updateGlobalPropert
 
 template class SimulationHistory<float>;
 template class MultiGalaxySimulationHistory<float,2,false>;
+template class SimulationHistory<double>;
+template class MultiGalaxySimulationHistory<double,2,false>;

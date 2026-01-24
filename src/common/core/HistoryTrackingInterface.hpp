@@ -1,24 +1,27 @@
 #ifndef HISTORY_TRACKING_INTERFACE_HPP_
 #define HISTORY_TRACKING_INTERFACE_HPP_
+
+#include <memory>
+
 #include "SimulationHistory.hpp"
 #include "SimulationHistoryGPU.hpp"
 
 template <typename T>
 class HistoryTrackingInterface {
     protected:
-        SimulationHistory<T>& history;
+        std::shared_ptr<SimulationHistory<T>> history;
     public:
-        HistoryTrackingInterface(SimulationHistory<T>& history);
-        const SimulationHistory<T>& getHistory() const;
+        HistoryTrackingInterface(std::shared_ptr<SimulationHistory<T>> history);
+        const std::shared_ptr<SimulationHistory<T>> getHistory() const;
 };
 
 template <typename T>
 class GPUHistoryTrackingInterface {
     protected:
-        GPUSimulationHistory<T>& history;
+        std::shared_ptr<GPUSimulationHistory<T>> history;
     public:
-        GPUHistoryTrackingInterface(GPUSimulationHistory<T>& history);
-        const GPUSimulationHistory<T>& getHistory() const;
+        GPUHistoryTrackingInterface(std::shared_ptr<GPUSimulationHistory<T>> history);
+        const std::shared_ptr<GPUSimulationHistory<T>> getHistory() const;
 };
 
 #endif

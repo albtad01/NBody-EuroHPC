@@ -248,8 +248,9 @@ SimulationNBodyInterface<T> *createImplem()
     }
     else if (ImplTag == "gpu+tracking") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
-        GPUSimulationHistory<T> history(NIterations);
-        simu = new SimulationNBodyCUDAPropertyTracking<T>(cudaAllocator, 
+        std::shared_ptr<GPUSimulationHistory<double>> history 
+            = std::make_shared<GPUSimulationHistory<double>>(NIterations);
+        simu = new SimulationNBodyCUDAPropertyTracking<T,double>(cudaAllocator, 
                                                           history,   
                                                           Softening);
     }

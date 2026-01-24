@@ -57,8 +57,9 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
 
     CUDABodiesAllocator<float> cudaAllocator(n, scheme);
     // SimulationNBodyCUDATileFullDevice<float> simuTest(cudaAllocator, soft);
-    GPUSimulationHistory<float> history(nIte);
-    SimulationNBodyCUDAPropertyTracking<float> simuTest(cudaAllocator, history, soft);
+    std::shared_ptr<GPUSimulationHistory<double>> history 
+        = std::make_shared<GPUSimulationHistory<double>>(nIte);
+    SimulationNBodyCUDAPropertyTracking<float, double> simuTest(cudaAllocator, history, soft);
     // SimulationNBodyCUDATile<float> simuTest(naiveAllocator, soft);
 
     // SimulationNBodyOptim<float> simuTest(naiveAllocator, soft);

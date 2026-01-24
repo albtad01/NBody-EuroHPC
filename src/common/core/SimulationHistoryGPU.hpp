@@ -14,7 +14,12 @@ class GPUSimulationHistoryInterface {
         T* devDensityCentersZ = nullptr;
         int allocatedIterations = 0;
     public:
-        GPUSimulationHistoryInterface() = default;
+        // GPUSimulationHistoryInterface() = default;
+        // GPUSimulationHistoryInterface(const GPUSimulationHistoryInterface&) = delete;
+        // GPUSimulationHistoryInterface& operator=(const GPUSimulationHistoryInterface&) = delete;
+
+        // GPUSimulationHistoryInterface(GPUSimulationHistoryInterface&&) = delete;
+        // GPUSimulationHistoryInterface& operator=(GPUSimulationHistoryInterface&&) = delete;
 
         // === Energy
         virtual T* getDevEnergy();

@@ -8,8 +8,8 @@
 #include "core/CUDABodies.hpp"
 #include "core/HistoryTrackingInterface.hpp"
 
-template <typename T>
-class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, GPUHistoryTrackingInterface<T> {
+template <typename T, typename Q=T>
+class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, GPUHistoryTrackingInterface<Q> {
   protected:
     std::shared_ptr<CUDABodies<T>> cudaBodiesPtr;
     devAccSoA_t<T> devAccelerations;
@@ -18,11 +18,11 @@ class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, 
     const T softSquared;
     bool const transfer_each_iteration;
     int _num_threads, _num_blocks, _elem_per_thread;
-    T* bufferForEnergy;
+    Q* bufferForEnergy;
     int currentIteration = 0;
   public:
     SimulationNBodyCUDAPropertyTracking(const BodiesAllocatorInterface<T>& allocator, 
-        GPUSimulationHistory<T>& history, 
+        std::shared_ptr<GPUSimulationHistory<Q>> history, 
         const T soft = 0.035f, const bool transfer_each_iteration = false);
     virtual ~SimulationNBodyCUDAPropertyTracking();
     virtual void computeOneIteration();
