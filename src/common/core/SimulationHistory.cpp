@@ -1,5 +1,10 @@
 #include "SimulationHistory.hpp"
 
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <stdexcept>
+
 
 // ================================= SimulationHistory ==================================
 template <typename T>
@@ -93,6 +98,27 @@ const std::vector<std::array<T,3>>& SimulationHistory<T>::getAllDensityCenter() 
 template <typename T>
 void SimulationHistory<T>::setAllDensityCenter(const std::vector<std::array<T,3>>& densityCenter) {
     this->densityCenters = densityCenter;
+}
+
+template <typename T>
+void SimulationHistory<T>::saveMetricsToCSV(const std::string& filePath) const {
+    std::ofstream out(filePath);
+    if (!out.is_open()) {
+        throw std::runtime_error("SimulationHistory::saveMetricsToCSV: cannot open file '" + filePath + "'");
+    }
+
+    out << "iteration,energy,ang_momentum,density_center_x,density_center_y,density_center_z\n";
+    out << std::setprecision(std::numeric_limits<T>::max_digits10);
+
+    const int n = this->getNumIterations();
+    for (int i = 0; i < n; i++) {
+        const auto& dc = this->getDensityCenterAt(i);
+        out << i << ','
+            << this->getEnergyAt(i) << ','
+            << this->getAngMomentumAt(i) << ','
+            << dc[0] << ',' << dc[1] << ',' << dc[2]
+            << '\n';
+    }
 }
 
 // ============================ MultiGalaxySimulationHistory =============================

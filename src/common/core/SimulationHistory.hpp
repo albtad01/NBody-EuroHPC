@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <string>
 
 template <typename T>
 class SimulationHistory {
@@ -39,6 +40,10 @@ class SimulationHistory {
         virtual void setDensityCenterAt(int iteration, const std::array<T,3>& densityCenter);
         virtual const std::vector<std::array<T,3>>& getAllDensityCenter() const;
         virtual void setAllDensityCenter(const std::vector<std::array<T,3>>& densityCenter);
+
+        // === Export
+        // CSV columns: iteration,energy,ang_momentum,density_center_x,density_center_y,density_center_z
+        virtual void saveMetricsToCSV(const std::string& filePath) const;
 
         virtual ~SimulationHistory() = default;
 };
