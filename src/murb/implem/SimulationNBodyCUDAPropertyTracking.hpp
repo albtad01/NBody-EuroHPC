@@ -9,7 +9,7 @@
 #include "core/HistoryTrackingInterface.hpp"
 
 template <typename T, typename Q=T>
-class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, GPUHistoryTrackingInterface<Q> {
+class SimulationNBodyCUDAPropertyTracking : public SimulationNBodyInterface<T>, public GPUHistoryTrackingInterface<Q> {
   protected:
     std::shared_ptr<CUDABodies<T>> cudaBodiesPtr;
     devAccSoA_t<T> devAccelerations;

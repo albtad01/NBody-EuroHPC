@@ -2,7 +2,6 @@
 
 import argparse
 import csv
-import math
 from pathlib import Path
 
 
@@ -78,41 +77,64 @@ def main() -> int:
 
     title_prefix = (args.title + " - ") if args.title else ""
 
-    # Energy
-    plt.figure()
-    plt.plot(it, E, linewidth=1.5)
-    plt.xlabel("Iteration")
-    plt.ylabel("Energy")
+    # -----------------------------
+    # Energy + normalized delta
+    # -----------------------------
+    fig, ax1 = plt.subplots()
+
+    # curva originale dell'energia
+    ax1.plot(it, E, color="blue", linewidth=1.5, label="Energy")
+    ax1.set_xlabel("Iteration")
+    ax1.set_ylabel("Energy", color="blue")
+    ax1.tick_params(axis="y", labelcolor="blue")
+    ax1.grid(True, alpha=0.3)
+
+    # curva |E[t]-E[0]|/|E[0]| su seconda y-axis
+    ax2 = ax1.twinx()  # crea seconda y-axis
+    deltaE = [abs(e - E[0]) / abs(E[0]) for e in E]
+    ax2.plot(it, deltaE, color="red", linestyle="--", linewidth=1.5, label="|ΔE| / |E0|")
+    ax2.set_ylabel("|ΔE| / |E0|", color="red")
+    ax2.tick_params(axis="y", labelcolor="red")
+
+    # titolo
     plt.title(f"{title_prefix}Energy vs Iteration")
-    plt.grid(True, alpha=0.3)
+
+    # legenda combinata
+    lines_1, labels_1 = ax1.get_legend_handles_labels()
+    lines_2, labels_2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="best")
+
     if args.save_prefix:
         plt.savefig(str(args.save_prefix) + "_energy.png", dpi=160, bbox_inches="tight")
-
-    # Angular momentum
-    plt.figure()
-    plt.plot(it, L, linewidth=1.5)
-    plt.xlabel("Iteration")
-    plt.ylabel("Angular momentum")
-    plt.title(f"{title_prefix}Angular Momentum vs Iteration")
-    plt.grid(True, alpha=0.3)
-    if args.save_prefix:
-        plt.savefig(str(args.save_prefix) + "_ang_momentum.png", dpi=160, bbox_inches="tight")
-
-    # Density center (3 components)
-    plt.figure()
-    plt.plot(it, cx, label="cx", linewidth=1.5)
-    plt.plot(it, cy, label="cy", linewidth=1.5)
-    plt.plot(it, cz, label="cz", linewidth=1.5)
-    plt.xlabel("Iteration")
-    plt.ylabel("Density center")
-    plt.title(f"{title_prefix}Density Center vs Iteration")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    if args.save_prefix:
-        plt.savefig(str(args.save_prefix) + "_density_center.png", dpi=160, bbox_inches="tight")
-
-    if not args.save_prefix:
+    else:
         plt.show()
+
+    # -----------------------------
+    # Angular momentum (commentato)
+    # -----------------------------
+    # plt.figure()
+    # plt.plot(it, L, linewidth=1.5)
+    # plt.xlabel("Iteration")
+    # plt.ylabel("Angular momentum")
+    # plt.title(f"{title_prefix}Angular Momentum vs Iteration")
+    # plt.grid(True, alpha=0.3)
+    # if args.save_prefix:
+    #     plt.savefig(str(args.save_prefix) + "_ang_momentum.png", dpi=160, bbox_inches="tight")
+
+    # -----------------------------
+    # Density center (3 components, commentato)
+    # -----------------------------
+    # plt.figure()
+    # plt.plot(it, cx, label="cx", linewidth=1.5)
+    # plt.plot(it, cy, label="cy", linewidth=1.5)
+    # plt.plot(it, cz, label="cz", linewidth=1.5)
+    # plt.xlabel("Iteration")
+    # plt.ylabel("Density center")
+    # plt.title(f"{title_prefix}Density Center vs Iteration")
+    # plt.grid(True, alpha=0.3)
+    # plt.legend()
+    # if args.save_prefix:
+    #     plt.savefig(str(args.save_prefix) + "_density_center.png", dpi=160, bbox_inches="tight")
 
     return 0
 

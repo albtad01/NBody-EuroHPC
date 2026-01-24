@@ -104,31 +104,6 @@ GPUSimulationHistoryInterface<T>::~GPUSimulationHistoryInterface() {
 }
 
 // =============================== GPUSimulationHistory =================================
-// template <typename T>
-// T* GPUSimulationHistory<T>::getDevEnergy() {
-//     return GPUSimulationHistoryInterface<T>::getDevEnergy();
-// }
-
-// template <typename T>
-// T* GPUSimulationHistory<T>::getDevAngMomentum() {
-//     return GPUSimulationHistoryInterface<T>::getDevAngMomentum();
-// }
-
-// template <typename T>
-// T* GPUSimulationHistory<T>::getDevDensityCentersX() {
-//     return GPUSimulationHistoryInterface<T>::getDevDensityCentersX();
-// }
-
-// template <typename T>
-// T* GPUSimulationHistory<T>::getDevDensityCentersY() {
-//     return GPUSimulationHistoryInterface<T>::getDevDensityCentersY();
-// }
-
-// template <typename T>
-// T* GPUSimulationHistory<T>::getDevDensityCentersZ() {
-//     return GPUSimulationHistoryInterface<T>::getDevDensityCentersZ();
-// }
-
 template <typename T>
 GPUSimulationHistory<T>::GPUSimulationHistory(int numIterations) : SimulationHistory<T>(numIterations) {
     this->allocateDeviceMemory(numIterations);

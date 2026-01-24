@@ -375,6 +375,8 @@ int main(int argc, char **argv)
     std::cout << "Entire simulation took " << perfTotal.getElapsedTime() << " ms "
               << "(" << perfTotal.getFPS(iIte - 1) << " FPS" << gflops.str() << ")" << std::endl;
 
+    ((SimulationNBodyCUDAPropertyTracking<float,double>*)simu)->getHistory()->copyFromDevice();
+    ((SimulationNBodyCUDAPropertyTracking<float,double>*)simu)->getHistory()->saveMetricsToCSV("metrics.csv");
     // free resources
     delete visu;
     delete simu;
