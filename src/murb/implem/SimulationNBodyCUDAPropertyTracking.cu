@@ -106,7 +106,7 @@ SimulationNBodyCUDAPropertyTracking<T,Q>::SimulationNBodyCUDAPropertyTracking(
             T rijSquared = rijx*rijx + rijy*rijy + rijz*rijz;
             potential_energy -= this->G * dataSoA.m[i] * dataSoA.m[j] / (std::sqrt(rijSquared+softSquared));
         }
-        kinetik_energy += 0.5 * (dataSoA.vx[i]*dataSoA.vx[i] + dataSoA.vy[i]*dataSoA.vy[i] + dataSoA.vz[i]*dataSoA.vz[i]);
+        kinetik_energy += 0.5 * dataSoA.m[i] * (dataSoA.vx[i]*dataSoA.vx[i] + dataSoA.vy[i]*dataSoA.vy[i] + dataSoA.vz[i]*dataSoA.vz[i]);
     }
 
     printf("Energy istant 0: %e\n", potential_energy + kinetik_energy);

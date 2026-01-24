@@ -47,23 +47,6 @@ template <typename T> class CUDABodies : public Bodies<T> {
 
     virtual void updatePositionsAndVelocities(const std::vector<accAoS_t<T>> &accelerations, T &dt);
 
-
-    /*!
-     *  \brief Initialized bodies like in a Galaxy with random generation. On device
-     *  \warning Not implemented yet
-     *
-     *  \param randInit : Initialization number for random generation.
-     */
-    void initGalaxyOnDevice(const unsigned long randInit = 0);
-
-    /*!
-     *  \brief Initialized bodies randomly on device
-     *  \warning Not implemented yet
-     *
-     *  \param randInit : Initialization number for random generation.
-     */
-    void initRandomlyOnDevice(const unsigned long randInit = 0);
-
     virtual ~CUDABodies();
 
   protected:

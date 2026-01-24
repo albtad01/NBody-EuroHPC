@@ -173,6 +173,11 @@ template <typename T> class Bodies {
      */
     void initRandomly(const unsigned long randInit = 0);
 
+    /*!
+     *  \brief Initialized bodies from a file (waiting for better documentation on file format)
+     */
+    void initFromFile(const unsigned long randInit = 0);
+
   protected:
     /*!
      *  \brief Update the position and the velocity of one body with time integration.

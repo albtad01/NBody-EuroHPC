@@ -158,18 +158,6 @@ void CUDABodies<T>::updatePositionsAndVelocities(const std::vector<accAoS_t<T>> 
     printf("\n\n updatePositionsAndVelocities NOT IMPLEMENTED");
 }
 
-
-
-template <typename T>
-void CUDABodies<T>::initGalaxyOnDevice(const unsigned long randInit) {
-    printf("\n\ninitGalaxyOnDevice NOT IMPLEMENTED!!\n\n");
-}
-
-template <typename T>
-void CUDABodies<T>::initRandomlyOnDevice(const unsigned long randInit) {
-    printf("\n\ninitRandomlyOnDevice NOT IMPLEMENTED!!\n\n");
-}
-
 template <typename T>
 CUDABodies<T>::~CUDABodies() {
     cudaFree(devDataSoA.m);

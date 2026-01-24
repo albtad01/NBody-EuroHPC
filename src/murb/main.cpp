@@ -19,6 +19,7 @@
 #include "utils/Perf.hpp"
 
 #include "implem/SimulationNBodyNaive.hpp"
+#include "implem/SimulationNBodyNop.hpp"
 #include "implem/SimulationNBodyOptim.hpp"
 #include "implem/SimulationNBodyOptim_Exact.hpp"
 #include "implem/SimulationNBodySIMD.hpp"
@@ -211,6 +212,9 @@ SimulationNBodyInterface<T> *createImplem()
 
     if (ImplTag == "cpu+naive") {
         simu = new SimulationNBodyNaive<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+nop") {
+        simu = new SimulationNBodyNop<T>(allocator, Softening);
     }
     else if (ImplTag == "cpu+optim") {
         simu = new SimulationNBodyOptim<T>(allocator, Softening);

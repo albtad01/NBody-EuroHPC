@@ -83,26 +83,18 @@ def main() -> int:
     fig, ax1 = plt.subplots()
 
     # curva originale dell'energia
-    ax1.plot(it, E, color="blue", linewidth=1.5, label="Energy")
+    ax1.plot(it, E, linewidth=1.5, color="blue")
     ax1.set_xlabel("Iteration")
-    ax1.set_ylabel("Energy", color="blue")
-    ax1.tick_params(axis="y", labelcolor="blue")
+    ax1.set_ylabel("Energy")
+    ax1.tick_params(axis="y")
     ax1.grid(True, alpha=0.3)
 
     # curva |E[t]-E[0]|/|E[0]| su seconda y-axis
     ax2 = ax1.twinx()  # crea seconda y-axis
     deltaE = [abs(e - E[0]) / abs(E[0]) for e in E]
-    ax2.plot(it, deltaE, color="red", linestyle="--", linewidth=1.5, label="|ΔE| / |E0|")
-    ax2.set_ylabel("|ΔE| / |E0|", color="red")
-    ax2.tick_params(axis="y", labelcolor="red")
-
-    # titolo
-    plt.title(f"{title_prefix}Energy vs Iteration")
-
-    # legenda combinata
-    lines_1, labels_1 = ax1.get_legend_handles_labels()
-    lines_2, labels_2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="best")
+    ax2.plot(it, deltaE, color="blue", linewidth=1.5)
+    ax2.set_ylabel("|ΔE| / |E0|")
+    ax2.tick_params(axis="y")
 
     if args.save_prefix:
         plt.savefig(str(args.save_prefix) + "_energy.png", dpi=160, bbox_inches="tight")
@@ -110,7 +102,7 @@ def main() -> int:
         plt.show()
 
     # -----------------------------
-    # Angular momentum (commentato)
+    # Angular momentum
     # -----------------------------
     # plt.figure()
     # plt.plot(it, L, linewidth=1.5)
@@ -122,7 +114,7 @@ def main() -> int:
     #     plt.savefig(str(args.save_prefix) + "_ang_momentum.png", dpi=160, bbox_inches="tight")
 
     # -----------------------------
-    # Density center (3 components, commentato)
+    # Density center
     # -----------------------------
     # plt.figure()
     # plt.plot(it, cx, label="cx", linewidth=1.5)

@@ -20,8 +20,7 @@ Bodies<T>::Bodies(const unsigned long n, const std::string &scheme, const unsign
     else if (scheme == "random")
         this->initRandomly(randInit);
     else {
-        std::cout << "(EE) `scheme` must be either `galaxy` or `random`." << std::endl;
-        std::exit(-1);
+        this->initFromFile(scheme);
     }
 }
 
@@ -74,6 +73,75 @@ void Bodies<T>::setBody(const unsigned long &iBody, const T &mi, const T &ri, co
     this->dataAoS[iBody].vy = viy;
     this->dataAoS[iBody].vz = viz;
 }
+
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
+template <typename T>
+void Bodies<T>::initFromFile(const std::string& filePath)
+{
+    std::ifstream file(filePath);
+    if (!file.is_open()) {
+        throw std::runtime_error("Impossibile aprire il file: " + filePath);
+    }
+
+    // 1) Count bodies
+    std::size_t nBodiesNelFile = 0;
+    std::string line;
+
+    while (std::getline(file, line)) {
+        if (!line.empty())
+            ++nBodiesNelFile;
+    }
+
+    // 2) Allocating buffers
+    this->n = nBodiesNelFile;
+    this->allocateBuffers();
+
+    // 3) Go to beginning of file
+    file.clear();
+    file.seekg(0, std::ios::beg);
+
+    // 4) Parsing & setBody
+    std::size_t iBody = 0;
+
+    while (std::getline(file, line)) {
+        if (line.empty())
+            continue;
+
+        std::istringstream iss(line);
+
+        T mi;
+        T qix, qiy, qiz;
+        T vix, viy, viz;
+
+        iss >> mi
+            >> qix >> qiy >> qiz
+            >> vix >> viy >> viz;
+
+        if (iss.fail()) {
+            throw std::runtime_error(
+                "Errore nel parsing alla riga " + std::to_string(iBody + 1)
+            );
+        }
+
+        this->setBody(
+            iBody,
+            mi,
+            /* ri non serve */
+            qix, qiy, qiz,
+            vix, viy, viz
+        );
+
+        ++iBody;
+    }
+
+    file.close();
+}
+
+
 
 /* create a galaxy... */
 template <typename T> void Bodies<T>::initGalaxy(const unsigned long randInit)
