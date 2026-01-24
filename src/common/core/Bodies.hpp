@@ -176,7 +176,7 @@ template <typename T> class Bodies {
     /*!
      *  \brief Initialized bodies from a file (waiting for better documentation on file format)
      */
-    void initFromFile(const unsigned long randInit = 0);
+    void initFromFile(const std::string& filePath);
 
   protected:
     /*!

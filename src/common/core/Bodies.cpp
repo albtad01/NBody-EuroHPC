@@ -113,13 +113,8 @@ void Bodies<T>::initFromFile(const std::string& filePath)
 
         std::istringstream iss(line);
 
-        T mi;
-        T qix, qiy, qiz;
-        T vix, viy, viz;
-
-        iss >> mi
-            >> qix >> qiy >> qiz
-            >> vix >> viy >> viz;
+        T mi, qix, qiy, qiz, vix, viy, viz;
+        iss >> mi >> qix >> qiy >> qiz >> vix >> viy >> viz;
 
         if (iss.fail()) {
             throw std::runtime_error(
@@ -127,14 +122,7 @@ void Bodies<T>::initFromFile(const std::string& filePath)
             );
         }
 
-        this->setBody(
-            iBody,
-            mi,
-            /* ri non serve */
-            qix, qiy, qiz,
-            vix, viy, viz
-        );
-
+        this->setBody(iBody,mi,0,qix,qiy, qiz,vix, viy, viz);
         ++iBody;
     }
 
