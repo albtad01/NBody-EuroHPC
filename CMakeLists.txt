@@ -163,6 +163,21 @@ if (ENABLE_MURB_OMP)
     endif (OpenMP_FOUND)
 endif()
 
+# ---------------- MPI ----------------
+find_package(MPI REQUIRED)
+
+if (MPI_CXX_FOUND)
+    message(STATUS "MPI found: ${MPI_CXX_COMPILER}")
+    # link MPI on final executables (object libs don't link anyway)
+    target_link_libraries(murb-bin PUBLIC MPI::MPI_CXX)
+    target_include_directories(murb-bin PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+
+    if (ENABLE_TEST)
+        target_link_libraries(test-bin PUBLIC MPI::MPI_CXX)
+        target_include_directories(test-bin PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    endif()
+endif()
+
 if ((ENABLE_MURB_OCL) AND (ENABLE_MURB))
     # Enable OCL
     targets_compile_definitions("${murb_targets_list}" PRIVATE USE_OCL)
