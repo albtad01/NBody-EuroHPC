@@ -1,0 +1,13 @@
+implem-tag,award-id,techno-tags,nodes-list,comment
+cpu+omp,5,cpu;omp;simd;mipp,iml-ia770-n1,"CPU God: best CPU implementation (OpenMP+SIMD/MIPP). Evaluated with: ./bin/murb -n 30000 -i 200 -v --nv --im cpu+omp"
+gpu+tile+full,1,gpu;cuda,az4-n4090-n1,"I'm the fastest in the World!: full-GPU CUDA kernel (tile+full). Evaluated with: ./bin/murb -n 500000 -i 200 -v --nv --im gpu+tile+full"
+gpu+tile+full200k,6,gpu;cuda,az4-n4090-n1,"CUDA Guru: CUDA kernel variant tuned for medium-size N. Evaluated with: ./bin/murb -n 200000 -i 200 -v --nv --im gpu+tile+full200k"
+artist cyberpunk visualization,8,cpu,az4-n4090-n1,"I'm an artist!: Move Your Body Cyberpunk visualization implemented in src/common/ogl/OGLSpheresVisuGS.cpp (procedural palette + beatPulse sync). Run any implem with visualization enabled (remove --nv)."
+hetero,,cpu;gpu;cuda;omp,az4-n4090-n1,"Heterogeneous CPU+GPU offload controlled by MURB_HETERO_GPU_FRACTION. Example run: export MURB_HETERO_GPU_FRACTION=0.75; ./bin/murb -n 30000 -i 60 -v --nv --im hetero"
+mpi,,cpu;mpi,iml-ia770-n1,"MPI prototype (single node): Allgatherv global state + local i-range compute. Example: srun -n 4 ./bin/murb -n 30000 -i 200 -v --nv --im mpi"
+cpu+naive,,cpu,iml-ia770-n1,"Baseline reference (naive). Useful for regression/perf comparisons."
+cpu+optim,,cpu,iml-ia770-n1,"Sequential CPU optimization: reduced arithmetic + symmetry/pair update (when applicable)."
+cpu+simd,,cpu;simd;mipp,iml-ia770-n1,"SIMD vectorized CPU kernel using MIPP (rsqrt + optional NR refinement)."
+gpu+tile,,gpu;cuda,az4-n4090-n1,"CUDA tiled kernel in shared memory (no full-residency optimization)."
+gpu+tracking,,gpu;cuda,az4-n4090-n1,"Experimental CUDA variant with tracking/instrumentation-oriented changes (not used for main awards)."
+gpu+leapfrog,,gpu;cuda,az4-n4090-n1,"Experimental CUDA variant exploring leapfrog-style integration / physics-oriented update (not used for main awards)."
