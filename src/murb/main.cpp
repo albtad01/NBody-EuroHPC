@@ -21,12 +21,8 @@
 #include "implem/SimulationNBodyNaive.hpp"
 #include "implem/SimulationNBodyNop.hpp"
 #include "implem/SimulationNBodyOptim.hpp"
-#include "implem/SimulationNBodyOptim_Exact.hpp"
 #include "implem/SimulationNBodySIMD.hpp"
-#include "implem/SimulationNBodySIMD_Exact.hpp" 
-#include "implem/SimulationNBodyOpenMP.hpp"
-#include "implem/SimulationNBodyOpenMP_Exact.hpp" 
-#include "implem/SimulationNBodyOpenMP_Green.hpp" 
+#include "implem/SimulationNBodyOpenMP.hpp" 
 #include "implem/SimulationNBodyHetero.hpp"
 // #include "implem/SimulationNBodyMultiNode.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
@@ -91,12 +87,8 @@ void argsReader(int argc, char **argv)
     docArgs["-im"] = "code implementation tag:\n"
                      "\t\t\t - \"cpu+naive\"\n"
                      "\t\t\t - \"cpu+optim\"\n"
-                     "\t\t\t - \"cpu+optim+exact\n" 
                      "\t\t\t - \"cpu+simd\"\n"
-                     "\t\t\t - \"cpu+simd+exact\n" 
                      "\t\t\t - \"cpu+omp\n"
-                     "\t\t\t - \"cpu+omp+exact\n"
-                     "\t\t\t - \"cpu+green\n"
                      "\t\t\t - \"hetero\"\n"
                     //  "\t\t\t - \"mpi\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
@@ -227,18 +219,6 @@ SimulationNBodyInterface<T> *createImplem()
     }
     else if (ImplTag == "cpu+omp") {
         simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
-    }
-    else if (ImplTag == "cpu+optim+exact") {
-        simu = new SimulationNBodyOptim_Exact<T>(allocator, Softening);
-    }
-    else if (ImplTag == "cpu+simd+exact") {
-        simu = new SimulationNBodySIMD_Exact<T>(allocator, Softening);
-    }
-    else if (ImplTag == "cpu+omp+exact") {
-        simu = new SimulationNBodyOpenMP_Exact<T>(allocator, Softening);
-    }
-    else if (ImplTag == "cpu+green" || ImplTag == "cpu+eco") {
-        simu = new SimulationNBodyOpenMP_Green<T>(allocator, Softening);
     }
     else if (ImplTag == "hetero") {
         simu = new SimulationNBodyHetero<T>(allocator, Softening);

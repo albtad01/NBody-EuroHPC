@@ -97,7 +97,17 @@ void SimulationNBodyOpenMP<T>::computeBodiesAcceleration()
     constexpr int UNROLL = MURB_OMP_UNROLL;
     const long step   = (long)UNROLL * (long)V;
     const long n_vec_u = n_vec - (n_vec % step);
-
+    
+    // Repro (iml-ia770, Release, FAST_MATH=ON):
+// srun -p iml-ia770 -n 1 --cpus-per-task=12 --threads-per-core=1 --cpu-bind=cores bash -lc '\
+//   export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK; \
+//   export OMP_DYNAMIC=FALSE; \
+//   export OMP_PLACES=cores; \
+//   export OMP_PROC_BIND=close; \
+//   export OMP_SCHEDULE=static; \
+//   export OMP_WAIT_POLICY=ACTIVE; \
+//   ./build/bin/murb -n 30000 -i 200 -v --nv --im cpu+omp \
+// '
 #ifdef _OPENMP
     omp_set_dynamic(0);
 #pragma omp parallel

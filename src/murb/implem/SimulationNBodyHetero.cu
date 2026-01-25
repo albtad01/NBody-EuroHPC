@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <algorithm>
 #include <vector>
+#include <type_traits>
+#include <cstdio>
 
 #include "SimulationNBodyHetero.hpp"
 
@@ -19,15 +21,25 @@
 #define MURB_HETERO_BLOCK 256
 #endif
 
-// -------------------- CUDA helpers --------------------
+#ifndef MURB_HETERO_MIN_N
+#define MURB_HETERO_MIN_N 8192
+#endif
+
 static inline void cuda_check(cudaError_t e, const char* msg) {
     if (e != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s: %s\n", msg, cudaGetErrorString(e));
+        std::fprintf(stderr, "CUDA error: %s: %s\n", msg, cudaGetErrorString(e));
         std::abort();
     }
 }
 
-// Kernel: each thread computes one i in [i0, i1)
+__device__ __forceinline__ float inv_sqrt_device(float x) {
+    return 1.0f / sqrtf(x);
+}
+
+__device__ __forceinline__ double inv_sqrt_device(double x) {
+    return 1.0 / sqrt(x);
+}
+
 template <typename T>
 __global__ void nbody_acc_kernel(
     const T* __restrict__ m,
@@ -55,7 +67,6 @@ __global__ void nbody_acc_kernel(
     T accy = (T)0;
     T accz = (T)0;
 
-    // Tiling over j
     __shared__ T sh_m[MURB_HETERO_BLOCK];
     __shared__ T sh_x[MURB_HETERO_BLOCK];
     __shared__ T sh_y[MURB_HETERO_BLOCK];
@@ -76,7 +87,9 @@ __global__ void nbody_acc_kernel(
         }
         __syncthreads();
 
-        const long lim = min((long)blockDim.x, n - base);
+        const long rem = n - base;
+        const long lim = rem < (long)blockDim.x ? rem : (long)blockDim.x;
+
         #pragma unroll 4
         for (long t = 0; t < lim; ++t) {
             const T dx = sh_x[t] - qi_x;
@@ -85,12 +98,7 @@ __global__ void nbody_acc_kernel(
 
             const T dist2 = dx*dx + dy*dy + dz*dz + soft2;
 
-            T inv;
-            if constexpr (std::is_same<T, float>::value) {
-                inv = rsqrtf((float)dist2);
-            } else {
-                inv = rsqrt((double)dist2);
-            }
+            const T inv  = inv_sqrt_device((typename std::conditional<std::is_same<T,float>::value,float,double>::type)dist2);
             const T inv3 = (inv * inv) * inv;
 
             const T fac = G * sh_m[t] * inv3;
@@ -107,13 +115,87 @@ __global__ void nbody_acc_kernel(
     az[i - i0] = accz;
 }
 
-// -------------------- Class impl --------------------
 template <typename T>
 SimulationNBodyHetero<T>::SimulationNBodyHetero(const BodiesAllocatorInterface<T>& allocator, const T soft)
 : SimulationNBodyInterface<T>(allocator, soft)
 {
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
     accelerations.resize(this->getBodies()->getN());
+}
+
+template <typename T>
+SimulationNBodyHetero<T>::~SimulationNBodyHetero()
+{
+    releaseCuda();
+}
+
+template <typename T>
+const std::vector<accAoS_t<T>>& SimulationNBodyHetero<T>::getAccAoS() {
+    return accelerations;
+}
+
+template <typename T>
+void SimulationNBodyHetero<T>::releaseCuda()
+{
+    if (stream) {
+        cudaStreamDestroy(stream);
+        stream = nullptr;
+    }
+    if (d_m)  { cudaFree(d_m);  d_m  = nullptr; }
+    if (d_qx) { cudaFree(d_qx); d_qx = nullptr; }
+    if (d_qy) { cudaFree(d_qy); d_qy = nullptr; }
+    if (d_qz) { cudaFree(d_qz); d_qz = nullptr; }
+    if (d_ax) { cudaFree(d_ax); d_ax = nullptr; }
+    if (d_ay) { cudaFree(d_ay); d_ay = nullptr; }
+    if (d_az) { cudaFree(d_az); d_az = nullptr; }
+    cap_n = 0;
+    cap_cut = 0;
+    hax.clear();
+    hay.clear();
+    haz.clear();
+}
+
+template <typename T>
+void SimulationNBodyHetero<T>::ensureCuda(std::size_t n, std::size_t cut)
+{
+    if (!stream) {
+        cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreate");
+    }
+
+    if (n > cap_n) {
+        if (d_m)  cudaFree(d_m);
+        if (d_qx) cudaFree(d_qx);
+        if (d_qy) cudaFree(d_qy);
+        if (d_qz) cudaFree(d_qz);
+
+        cuda_check(cudaMalloc((void**)&d_m,  n * sizeof(T)), "cudaMalloc d_m");
+        cuda_check(cudaMalloc((void**)&d_qx, n * sizeof(T)), "cudaMalloc d_qx");
+        cuda_check(cudaMalloc((void**)&d_qy, n * sizeof(T)), "cudaMalloc d_qy");
+        cuda_check(cudaMalloc((void**)&d_qz, n * sizeof(T)), "cudaMalloc d_qz");
+
+        cap_n = n;
+    }
+
+    if (cut > cap_cut) {
+        if (d_ax) cudaFree(d_ax);
+        if (d_ay) cudaFree(d_ay);
+        if (d_az) cudaFree(d_az);
+
+        cuda_check(cudaMalloc((void**)&d_ax, cut * sizeof(T)), "cudaMalloc d_ax");
+        cuda_check(cudaMalloc((void**)&d_ay, cut * sizeof(T)), "cudaMalloc d_ay");
+        cuda_check(cudaMalloc((void**)&d_az, cut * sizeof(T)), "cudaMalloc d_az");
+
+        cap_cut = cut;
+        hax.resize(cut);
+        hay.resize(cut);
+        haz.resize(cut);
+    } else {
+        if (hax.size() != cut) {
+            hax.resize(cut);
+            hay.resize(cut);
+            haz.resize(cut);
+        }
+    }
 }
 
 template <typename T>
@@ -132,7 +214,11 @@ void SimulationNBodyHetero<T>::computeBodiesAcceleration()
     const T soft2 = this->soft * this->soft;
     const T G = this->G;
 
-    // Decide split ratio (env overrides)
+    long min_n = (long)MURB_HETERO_MIN_N;
+    if (const char* s = std::getenv("MURB_HETERO_MIN_N")) {
+        min_n = std::max(0L, std::atol(s));
+    }
+
     double frac = MURB_HETERO_GPU_FRACTION;
     if (const char* s = std::getenv("MURB_HETERO_GPU_FRACTION")) {
         frac = std::max(0.0, std::min(1.0, std::atof(s)));
@@ -140,10 +226,12 @@ void SimulationNBodyHetero<T>::computeBodiesAcceleration()
     long cut = (long)(frac * (double)n);
     cut = std::max(0L, std::min(n, cut));
 
-    // If no GPU work or no CUDA device, fallback CPU-only
     int devCount = 0;
     cudaError_t ce = cudaGetDeviceCount(&devCount);
-    if (ce != cudaSuccess || devCount <= 0 || cut == 0) {
+
+    const bool use_gpu = (n >= min_n) && (ce == cudaSuccess) && (devCount > 0) && (cut > 0);
+
+    if (!use_gpu) {
 #ifdef _OPENMP
         omp_set_dynamic(0);
 #pragma omp parallel for schedule(static)
@@ -161,45 +249,28 @@ void SimulationNBodyHetero<T>::computeBodiesAcceleration()
                 const T fac = G * m[j] * inv3;
                 ax += fac * dx; ay += fac * dy; az += fac * dz;
             }
-            this->accelerations[i].ax = ax;
-            this->accelerations[i].ay = ay;
-            this->accelerations[i].az = az;
+            accelerations[i].ax = ax;
+            accelerations[i].ay = ay;
+            accelerations[i].az = az;
         }
         return;
     }
 
-    // Allocate device buffers
-    T *d_m=nullptr, *d_qx=nullptr, *d_qy=nullptr, *d_qz=nullptr;
-    T *d_ax=nullptr, *d_ay=nullptr, *d_az=nullptr;
+    ensureCuda((std::size_t)n, (std::size_t)cut);
 
-    cuda_check(cudaMalloc((void**)&d_m,  (size_t)n * sizeof(T)), "cudaMalloc d_m");
-    cuda_check(cudaMalloc((void**)&d_qx, (size_t)n * sizeof(T)), "cudaMalloc d_qx");
-    cuda_check(cudaMalloc((void**)&d_qy, (size_t)n * sizeof(T)), "cudaMalloc d_qy");
-    cuda_check(cudaMalloc((void**)&d_qz, (size_t)n * sizeof(T)), "cudaMalloc d_qz");
+    cuda_check(cudaMemcpyAsync(d_m,  m,  (std::size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D m");
+    cuda_check(cudaMemcpyAsync(d_qx, qx, (std::size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qx");
+    cuda_check(cudaMemcpyAsync(d_qy, qy, (std::size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qy");
+    cuda_check(cudaMemcpyAsync(d_qz, qz, (std::size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qz");
 
-    cuda_check(cudaMalloc((void**)&d_ax, (size_t)cut * sizeof(T)), "cudaMalloc d_ax");
-    cuda_check(cudaMalloc((void**)&d_ay, (size_t)cut * sizeof(T)), "cudaMalloc d_ay");
-    cuda_check(cudaMalloc((void**)&d_az, (size_t)cut * sizeof(T)), "cudaMalloc d_az");
-
-    cudaStream_t stream;
-    cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreate");
-
-    // Copy inputs
-    cuda_check(cudaMemcpyAsync(d_m,  m,  (size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D m");
-    cuda_check(cudaMemcpyAsync(d_qx, qx, (size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qx");
-    cuda_check(cudaMemcpyAsync(d_qy, qy, (size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qy");
-    cuda_check(cudaMemcpyAsync(d_qz, qz, (size_t)n * sizeof(T), cudaMemcpyHostToDevice, stream), "H2D qz");
-
-    // Launch kernel for i in [0, cut)
     const int block = MURB_HETERO_BLOCK;
-    const int grid  = (int)((cut + block - 1) / block);
+    const int grid  = (int)(((std::size_t)cut + (std::size_t)block - 1) / (std::size_t)block);
 
     nbody_acc_kernel<T><<<grid, block, 0, stream>>>(
         d_m, d_qx, d_qy, d_qz, d_ax, d_ay, d_az, n, 0, cut, soft2, G
     );
     cuda_check(cudaGetLastError(), "kernel launch");
 
-    // CPU computes [cut, n)
 #ifdef _OPENMP
     omp_set_dynamic(0);
 #pragma omp parallel for schedule(static)
@@ -207,7 +278,6 @@ void SimulationNBodyHetero<T>::computeBodiesAcceleration()
     for (long i = cut; i < n; i++) {
         const T qi_x = qx[i], qi_y = qy[i], qi_z = qz[i];
         T ax = (T)0, ay = (T)0, az = (T)0;
-
         for (long j = 0; j < n; j++) {
             const T dx = qx[j] - qi_x;
             const T dy = qy[j] - qi_y;
@@ -218,40 +288,31 @@ void SimulationNBodyHetero<T>::computeBodiesAcceleration()
             const T fac = G * m[j] * inv3;
             ax += fac * dx; ay += fac * dy; az += fac * dz;
         }
-        this->accelerations[i].ax = ax;
-        this->accelerations[i].ay = ay;
-        this->accelerations[i].az = az;
+        accelerations[i].ax = ax;
+        accelerations[i].ay = ay;
+        accelerations[i].az = az;
     }
 
-    // Copy GPU results back into accelerations[0..cut)
-    std::vector<T> hax((size_t)cut), hay((size_t)cut), haz((size_t)cut);
-
-    cuda_check(cudaMemcpyAsync(hax.data(), d_ax, (size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H ax");
-    cuda_check(cudaMemcpyAsync(hay.data(), d_ay, (size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H ay");
-    cuda_check(cudaMemcpyAsync(haz.data(), d_az, (size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H az");
+    cuda_check(cudaMemcpyAsync(hax.data(), d_ax, (std::size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H ax");
+    cuda_check(cudaMemcpyAsync(hay.data(), d_ay, (std::size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H ay");
+    cuda_check(cudaMemcpyAsync(haz.data(), d_az, (std::size_t)cut * sizeof(T), cudaMemcpyDeviceToHost, stream), "D2H az");
 
     cuda_check(cudaStreamSynchronize(stream), "stream sync");
 
     for (long i = 0; i < cut; i++) {
-        this->accelerations[i].ax = hax[(size_t)i];
-        this->accelerations[i].ay = hay[(size_t)i];
-        this->accelerations[i].az = haz[(size_t)i];
+        accelerations[i].ax = hax[(std::size_t)i];
+        accelerations[i].ay = hay[(std::size_t)i];
+        accelerations[i].az = haz[(std::size_t)i];
     }
-
-    // Cleanup
-    cudaStreamDestroy(stream);
-    cudaFree(d_m);  cudaFree(d_qx); cudaFree(d_qy); cudaFree(d_qz);
-    cudaFree(d_ax); cudaFree(d_ay); cudaFree(d_az);
 }
 
 template <typename T>
 void SimulationNBodyHetero<T>::computeOneIteration()
 {
-    this->initIteration();
-    this->computeBodiesAcceleration();
-    this->bodies->updatePositionsAndVelocities(this->accelerations, this->dt);
+    initIteration();
+    computeBodiesAcceleration();
+    this->bodies->updatePositionsAndVelocities(accelerations, this->dt);
 }
 
-// Explicit instantiation
 template class SimulationNBodyHetero<float>;
 template class SimulationNBodyHetero<double>;
