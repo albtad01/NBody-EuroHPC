@@ -15,6 +15,7 @@
 #include "SimulationNBodyHetero.hpp"
 #include "SimulationNBodyCUDATile.hpp"
 #include "SimulationNBodyCUDATileFullDevice.hpp"
+#include "SimulationNBodyCUDATileFullDevice200k.hpp"
 #include "SimulationNBodyCUDAPropertyTracking.hpp"
 #include "SimulationNBodyCUDALeapfrog.hpp"
 #include "SimulationNBodyMultiNode.hpp"

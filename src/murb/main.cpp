@@ -93,6 +93,7 @@ void argsReader(int argc, char **argv)
                      "\t\t\t - \"mpi\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+full\n"
+                     "\t\t\t - \"gpu+tile+full200k\n"
                      "\t\t\t - \"gpu+tracking\n"
                      "\t\t\t - \"gpu+leapfrog\n"
                      "\t\t\t ----";
@@ -223,8 +224,8 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "hetero") {
         simu = new SimulationNBodyHetero<T>(allocator, Softening);
     }
-    else if (ImplTag == "mpi") {
-        simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+     else if (ImplTag == "mpi") {
+         simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
