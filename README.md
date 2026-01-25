@@ -13,6 +13,8 @@ We use out-of-source builds.
 This is the configuration used for both CPU benchmarking and GPU/heterogeneous runs.
 
 ```bash
+module load openmpi/5.0.8
+module load easytools/g1d7d343
 rm -rf build
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_FAST_MATH=ON -DENABLE_MURB_CUDA=ON
