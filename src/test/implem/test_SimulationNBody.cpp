@@ -17,6 +17,7 @@
 #include "SimulationNBodyCUDATileFullDevice.hpp"
 #include "SimulationNBodyCUDAPropertyTracking.hpp"
 #include "SimulationNBodyCUDALeapfrog.hpp"
+#include "SimulationNBodyMultiNode.hpp"
 
 template <typename T>
 void compare_arrays(const T* a1, const T* a2, int n) {
@@ -69,6 +70,7 @@ void test_nbody_gpufd_full_test(const size_t n, const float soft, const float dt
     // SimulationNBodySIMD<float> simuTest(naiveAllocator, soft);
     // SimulationNBodyOpenMP<float> simuTest(naiveAllocator, soft);
     // SimulationNBodyHetero<float> simuTest(naiveAllocator, soft);
+    // SimulationNBodyMultiNode<float> simuTest(naiveAllocator, soft);
     simuTest.setDt(dt);
 
     const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();
