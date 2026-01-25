@@ -1,110 +1,115 @@
-# MoveUrBody (`MUrB`), a n-body code
 
-This is a n-body code that simulates the Newtonian gravity equations.
+# MUrB – PACC (UM5IN160) Project Submission
 
-## How to compile and run the code
+This repository contains our optimized implementations of the MUrB n-body simulator:
+CPU (naive/optim/SIMD/OpenMP), MPI prototype, CUDA GPU kernels, and heterogeneous CPU+GPU execution.
 
-This project uses `cmake` in order to generate any type of projects (Makefile, 
-Visual Studio projects, Eclipse projects, etc.).
+## 1) Build 
 
-On Linux/Debian-like systems:
+We use out-of-source builds.
+
+### Release build (fast-math + CUDA enabled)
+
+This is the configuration used for both CPU benchmarking and GPU/heterogeneous runs.
 
 ```bash
-sudo apt-get install cmake
+rm -rf build
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_FAST_MATH=ON -DENABLE_MURB_CUDA=ON
+cmake --build . -j4
 ```
 
-### Get the Git Submodules
+## 2) Validation tests (Catch2)
 
-`MUrB` depends on some other Git repositories (or submodules). It is highly 
-recommended to get those submodules before trying to do anything else. Here is 
-the command to get all the required submodules:
+From the build directory:
 
 ```bash
-git submodule update --init --recursive
-```
-
-### Other Dependencies
-
-`MUrB` comes with a *cool* real time display engine. To enjoy it, you have to 
-install some dependencies: `OpenGL >= 3.0`, `GLEW >= 1.11.0`, `GLM >= 0.9.5.4` 
-and `GLFW >= 3.0.4` libraries are required. If one on these libraries is missing 
-on your system, then `MUrB` will be compiled in console mode only.
-
-On Ubuntu 20.04 you can install the required libraries as follow:
-
-```bash
-sudo apt install libglfw3-dev libglew-dev libglm-dev
-```
-
-### Compilation with Makefile
-
-Open a terminal and type (from the `MUrB` root folder):
-
-```bash
-mkdir build
 cd build
-cmake .. -G"Unix Makefiles" -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g" -DCMAKE_CXX_FLAGS="-Wall -funroll-loops -march=native"
-make -j4
+./bin/murb-test
 ```
 
-## Run the code
+## 3) Run commands (copy-paste)
 
-Run 1000 bodies (`-n`) during 1000 iterations (`-i`) and enable the verbose mode 
-(`-v`):
+All runs below disable visualization (`--nv`) and enable FLOPs metric (`--gf`).
+
+### Cluster prerequisites (modules)
+
+To run on the cluster, load the following modules:
 
 ```bash
-./bin/murb -n 1000 -i 1000 -v
+module load openmpi/5.0.8
+module load easytools/g1d7d343
 ```
 
-Expected output:
+### A) CPU single-thread (iml-ia770)
 
-```
-n-body simulation configuration:
---------------------------------
-  -> bodies scheme     (-s    ): galaxy
-  -> implementation    (--im  ): cpu+naive
-  -> nb. of bodies     (-n    ): 1000
-  -> nb. of iterations (-i    ): 1000
-  -> verbose mode      (-v    ): enable
-  -> precision                 : fp32
-  -> mem. allocated            : 0.0724792 MB
-  -> geometry shader   (--ngs ): enable
-  -> time step         (--dt  ): 3600.000000 sec
-  -> softening factor  (--soft): 2e+08
-Compiling shader: ../src/common/ogl/shaders/vertex330_color_v2.glsl
-Compiling shader: ../src/common/ogl/shaders/geometry330_color_v2.glsl
-Compiling shader: ../src/common/ogl/shaders/fragment330_color_v2.glsl
-Linking shader program... SUCCESS !
+#### cpu+naive
 
-Simulation started...
-Iteration n°1000 ( 729.9 FPS), physic time:   41d   16h    0m 0.000s
-Simulation ended.
-
-Entire simulation took 1370.0 ms (729.9 FPS)
+```bash
+srun -p iml-ia770 -n 1 --cpus-per-task=1 --threads-per-core=1 --cpu-bind=cores \
+	./build/bin/murb -n 30000 -i 200 --nv --im cpu+naive --gf
 ```
 
-### Command Line Parameters
+#### cpu+optim
 
-Here is the help (`-h`) of `MUrB`:
-```
-Usage: ./bin/murb -i nIterations -n nBodies [--dt timeStep] [--gf] [--help] [--im ImplTag] [--ngs] [--nv] [--nvc] [--soft softeningFactor] [--wg workGroup] [--wh winHeight] [--ww winWidth] [-h] [-s Bodies scheme] [-v]
-
-  -i      the number of iterations to compute.
-  -n      the number of generated bodies.
-  --dt    select a fixed time step in second (default is 3600.000000 sec).
-  --gf    display the number of GFlop/s.
-  --help  display this help.
-  --im    code implementation tag:
-           - "cpu+naive"
-           ----
-  --ngs   disable geometry shader for visu (slower but it should work with old GPUs).
-  --nv    no visualization (disable visu).
-  --nvc   visualization without colors.
-  --soft  softening factor.
-  --wh    the height of the window in pixel (default is 768).
-  --ww    the width of the window in pixel (default is 1024).
-  -h      display this help.
-  -s      bodies scheme (initial conditions can be "galaxy" or "random").
-  -v      enable verbose mode.
+```bash
+srun -p iml-ia770 -n 1 --cpus-per-task=1 --threads-per-core=1 --cpu-bind=cores \
+	./build/bin/murb -n 30000 -i 200 --nv --im cpu+optim --gf
 ```
 
+#### cpu+simd
+
+```bash
+srun -p iml-ia770 -n 1 --cpus-per-task=1 --threads-per-core=1 --cpu-bind=cores \
+	./build/bin/murb -n 30000 -i 200 --nv --im cpu+simd --gf
+```
+
+### B) OpenMP (iml-ia770)
+
+```bash
+export OMP_NUM_THREADS=12
+export OMP_DYNAMIC=FALSE
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+export OMP_SCHEDULE=static
+export OMP_WAIT_POLICY=ACTIVE
+
+srun -p iml-ia770 -n 1 --cpus-per-task=12 --threads-per-core=1 --cpu-bind=cores --export=ALL \
+	./build/bin/murb -n 30000 -i 200 --nv --im cpu+omp --gf
+```
+
+### C) MPI prototype (single node, iml-ia770)
+
+```bash
+srun -p iml-ia770 -n 4 --cpus-per-task=1 --threads-per-core=1 --cpu-bind=cores \
+	./build/bin/murb -n 30000 -i 200 --nv --im mpi --gf
+```
+
+### D) CUDA GPU (az4-n4090)
+
+```bash
+srun -p az4-n4090 -n 1 --cpus-per-task=1 --cpu-bind=cores \
+	./build/bin/murb -n 200000 -i 200 --nv --im gpu+tile+full --gf
+```
+
+Other available GPU tags:
+
+- `gpu+tile`
+- `gpu+tile+full`
+- `gpu+tile+full200k`
+- `gpu+tracking`
+- `gpu+leapfrog`
+
+### E) Heterogeneous CPU+GPU (az4-n4090)
+
+```bash
+export MURB_HETERO_GPU_FRACTION=0.75
+export OMP_NUM_THREADS=12
+export OMP_DYNAMIC=FALSE
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+export OMP_SCHEDULE=static
+
+srun -p az4-n4090 -n 1 --cpus-per-task=12 --threads-per-core=1 --cpu-bind=cores --export=ALL \
+	./build/bin/murb -n 30000 -i 60 --nv --im hetero --gf
+```
