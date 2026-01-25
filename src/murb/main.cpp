@@ -31,6 +31,7 @@
 // #include "implem/SimulationNBodyMultiNode.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
+#include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
 #include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
 #include "implem/SimulationNBodyCUDALeapfrog.hpp"
 
@@ -252,6 +253,10 @@ SimulationNBodyInterface<T> *createImplem()
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
     }
+    else if (ImplTag == "gpu+tile+full200k") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyCUDATileFullDevice200k<T>(cudaAllocator, Softening);
+    }
     else if (ImplTag == "gpu+tracking") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         std::shared_ptr<GPUSimulationHistory<double>> history 
@@ -322,7 +327,7 @@ int main(int argc, char **argv)
     argsReader(argc, argv);
 
     // create the n-body simulation
-    SimulationNBodyInterface<double> *simu = createImplem<double>();
+    SimulationNBodyInterface<float> *simu = createImplem<float>();
     NBodies = simu->getBodies()->getN();
 
     // get MB used for this simulation
@@ -343,7 +348,7 @@ int main(int argc, char **argv)
     std::cout << "  -> softening factor  (--soft): " << Softening << std::endl;
 
     // initialize visualization of bodies (with spheres in space)
-    SpheresVisu *visu = createVisu<double>(simu);
+    SpheresVisu *visu = createVisu<float>(simu);
 
     // time step selection
     simu->setDt(Dt);
@@ -392,8 +397,8 @@ int main(int argc, char **argv)
     std::cout << "Entire simulation took " << perfTotal.getElapsedTime() << " ms "
               << "(" << perfTotal.getFPS(iIte - 1) << " FPS" << gflops.str() << ")" << std::endl;
 
-    ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->copyFromDevice();
-    ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->saveMetricsToCSV("metrics.csv");
+    // ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->copyFromDevice();
+    // ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->saveMetricsToCSV("metrics.csv");
     // free resources
     delete visu;
     delete simu;
