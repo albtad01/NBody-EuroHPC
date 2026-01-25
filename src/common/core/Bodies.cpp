@@ -20,7 +20,7 @@ Bodies<T>::Bodies(const unsigned long n, const std::string &scheme, const unsign
     else if (scheme == "random")
         this->initRandomly(randInit);
     else {
-        this->initFromFile(scheme);
+        this->initMilkyWayAndromeda();
     }
 }
 
@@ -80,8 +80,9 @@ void Bodies<T>::setBody(const unsigned long &iBody, const T &mi, const T &ri, co
 #include <string>
 
 template <typename T>
-void Bodies<T>::initFromFile(const std::string& filePath)
+void Bodies<T>::initMilkyWayAndromeda()
 {
+    const std::string filePath = "milkyway_andromeda.tab";
     std::ifstream file(filePath);
     if (!file.is_open()) {
         throw std::runtime_error("Impossibile aprire il file: " + filePath);
@@ -107,6 +108,10 @@ void Bodies<T>::initFromFile(const std::string& filePath)
     // 4) Parsing & setBody
     std::size_t iBody = 0;
 
+    const int diskBodies = 16384;
+    const int bulgeBodies = 8192;
+    const int haloBodies = 16384;
+
     while (std::getline(file, line)) {
         if (line.empty())
             continue;
@@ -115,6 +120,23 @@ void Bodies<T>::initFromFile(const std::string& filePath)
 
         T mi, qix, qiy, qiz, vix, viy, viz;
         iss >> mi >> qix >> qiy >> qiz >> vix >> viy >> viz;
+
+        // Rescaling
+        if ( iBody < diskBodies ||  // disk
+            ( iBody >= diskBodies*2 && iBody < diskBodies*2+bulgeBodies) || // bulge
+            ( iBody >= (diskBodies+bulgeBodies)*2 && iBody < (diskBodies+bulgeBodies)*2+haloBodies)
+        ) { 
+            // Milky way body
+            mi *= 4.5e10;   // Unit of mass is 4.5e10 * solar masses
+            qix *= 4.0; qiy *= 4.0; qiz *= 4.0;   // R_d = 4.0 kps
+            vix *= 220; viy *= 220; viz *= 220;   // V_c = 220 km/s
+
+        } else {
+            // Andromeda body
+            mi *= 9.4e10;   // Unit of mass is 9.4e10 * solar masses
+            qix *= 6.0; qiy *= 6.0; qiz *= 6.0;   // R_d = 6.0 kps
+            vix *= 260; viy *= 260; viz *= 260;   // V_c = 260 km/s
+        }
 
         if (iss.fail()) {
             throw std::runtime_error(

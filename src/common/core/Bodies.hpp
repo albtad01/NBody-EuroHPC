@@ -174,9 +174,9 @@ template <typename T> class Bodies {
     void initRandomly(const unsigned long randInit = 0);
 
     /*!
-     *  \brief Initialized bodies from a file (waiting for better documentation on file format)
+     *  \brief Initialized bodies from a file containing MilkyWay and Andromeda
      */
-    void initFromFile(const std::string& filePath);
+    void initMilkyWayAndromeda();
 
   protected:
     /*!
