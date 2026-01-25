@@ -46,8 +46,8 @@ SimulationNBodyCUDATileAdvanced<T>::SimulationNBodyCUDATileAdvanced(const Bodies
 {
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
     this->accelerations.ax.resize(this->getBodies()->getN());
-    this->accelerations.ay.resize(this->getBodies()->getN());
-    this->accelerations.az.resize(this->getBodies()->getN());
+    this->accelerations.ax.resize(this->getBodies()->getN());
+    this->accelerations.ax.resize(this->getBodies()->getN());
 
     const int NUM_SM = 128;
     int n = (int)this->getBodies()->getN();
@@ -76,9 +76,9 @@ SimulationNBodyCUDATileAdvanced<T>::SimulationNBodyCUDATileAdvanced(const Bodies
     cudaMalloc(&this->devQx, this->getBodies()->getN() * sizeof(T));
     cudaMalloc(&this->devQy, this->getBodies()->getN() * sizeof(T));
     cudaMalloc(&this->devQz, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devAccelerations.ax, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devAccelerations.ay, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devAccelerations.az, this->getBodies()->getN() * sizeof(T));
+    cudaMalloc(&this->devAccelerations.x, this->getBodies()->getN() * sizeof(T));
+    cudaMalloc(&this->devAccelerations.y, this->getBodies()->getN() * sizeof(T));
+    cudaMalloc(&this->devAccelerations.z, this->getBodies()->getN() * sizeof(T));
 
 }
 
@@ -92,9 +92,9 @@ SimulationNBodyCUDATileAdvanced<T>::SimulationNBodyCUDATileAdvanced(const Bodies
 //     for (int k = 0; k < elem_per_thread; k++) {
 //         int iBody = blockIdx.x * blockDim.x * elem_per_thread + threadIdx.x + k * blockDim.x;
 //         if (iBody < n_bodies) {
-//             devAccelerations[iBody].ax = T(0);
-//             devAccelerations[iBody].ay = T(0);
-//             devAccelerations[iBody].az = T(0);
+//             devAccelerations[iBody].x = T(0);
+//             devAccelerations[iBody].y = T(0);
+//             devAccelerations[iBody].z = T(0);
 //         }
 //     }
 // }
@@ -187,9 +187,9 @@ __global__ void devComputeBodiesAccelerationTile(
         }
 
         if (iBody < n_bodies) {
-            devAccelerations.ax[iBody] = accX;
-            devAccelerations.ay[iBody] = accY;
-            devAccelerations.az[iBody] = accZ;
+            devAccelerations.x[iBody] = accX;
+            devAccelerations.y[iBody] = accY;
+            devAccelerations.z[iBody] = accZ;
         }
     }
 }
@@ -229,11 +229,11 @@ void SimulationNBodyCUDATileAdvanced<T>::computeBodiesAcceleration()
     // std::cout << "KERNEL: Elapsed(ns)=" << since(start1).count() << std::endl;
     
     auto start2 = std::chrono::steady_clock::now();
-    cudaMemcpy(this->accelerations.ax.data(), this->devAccelerations.ax,
+    cudaMemcpy(this->accelerations.ax.data(), this->devAccelerations.x,
                n * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(this->accelerations.ay.data(), this->devAccelerations.ay,
+    cudaMemcpy(this->accelerations.ay.data(), this->devAccelerations.y,
                n * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(this->accelerations.az.data(), this->devAccelerations.az,
+    cudaMemcpy(this->accelerations.az.data(), this->devAccelerations.z,
                n * sizeof(T), cudaMemcpyDeviceToHost);
     // std::cout << "MEMCPY acc: Elapsed(ns)=" << since(start2).count() << std::endl;
 }
@@ -244,9 +244,9 @@ SimulationNBodyCUDATileAdvanced<T>::~SimulationNBodyCUDATileAdvanced() {
     cudaFree(devQx);
     cudaFree(devQy);
     cudaFree(devQz);
-    cudaFree(devAccelerations.ax);
-    cudaFree(devAccelerations.ay);
-    cudaFree(devAccelerations.az);
+    cudaFree(devAccelerations.x);
+    cudaFree(devAccelerations.y);
+    cudaFree(devAccelerations.z);
 }
 
 template class SimulationNBodyCUDATileAdvanced<float>;

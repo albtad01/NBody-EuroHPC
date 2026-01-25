@@ -128,13 +128,13 @@ void Bodies<T>::initMilkyWayAndromeda()
         ) { 
             // Milky way body
             mi *= 4.5e10;   // Unit of mass is 4.5e10 * solar masses
-            qix *= 4.0; qiy *= 4.0; qiz *= 4.0;   // R_d = 4.0 kps
+            qix *= 4.0; qiy *= 4.0; qiz *= 4.0;   // R_d = 4.0 kpc
             vix *= 220; viy *= 220; viz *= 220;   // V_c = 220 km/s
 
         } else {
             // Andromeda body
             mi *= 9.4e10;   // Unit of mass is 9.4e10 * solar masses
-            qix *= 6.0; qiy *= 6.0; qiz *= 6.0;   // R_d = 6.0 kps
+            qix *= 6.0; qiy *= 6.0; qiz *= 6.0;   // R_d = 6.0 kpc
             vix *= 260; viy *= 260; viz *= 260;   // V_c = 260 km/s
         }
 
@@ -144,7 +144,8 @@ void Bodies<T>::initMilkyWayAndromeda()
             );
         }
 
-        this->setBody(iBody,mi,0,qix,qiy, qiz,vix, viy, viz);
+            
+        this->setBody(iBody,mi,1e5,qix,qiy, qiz,vix, viy, viz);
         ++iBody;
     }
 

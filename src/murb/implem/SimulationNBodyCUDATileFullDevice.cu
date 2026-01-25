@@ -70,9 +70,9 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
     int total_threads = this->_num_blocks * this->_num_threads;
     this->_elem_per_thread = (n + total_threads - 1) / total_threads;
 
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.ax, this->getBodies()->getN()*sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.ay, this->getBodies()->getN()*sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.az, this->getBodies()->getN()*sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.x, this->getBodies()->getN()*sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.y, this->getBodies()->getN()*sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.z, this->getBodies()->getN()*sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devGM, this->getBodies()->getN()*sizeof(T)));
 
     // std::cout << "Number of threads: " << _num_threads << std::endl;
@@ -96,27 +96,9 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
         this->bodies->getN(),this->G,this->devGM,this->_elem_per_thread);
 }
 
-// template <typename T>
-// __global__ void devInitIterationTileFullDevice(devAccSoA_t<T> devAccelerations,
-//                                  const int n_bodies) {
-//     int iBody = blockIdx.x * blockDim.x + threadIdx.x;
-//     if ( iBody < n_bodies ) {
-//         devAccelerations.ax[iBody] = T(0);
-//         devAccelerations.ay[iBody] = T(0);
-//         devAccelerations.az[iBody] = T(0);
-//     }
-// }
-
 template <typename T>
 void SimulationNBodyCUDATileFullDevice<T>::initIteration()
 {
-    // int n = (int)this->getBodies()->getN();
-    // int threads = 256; 
-    // int blocks = (n + threads - 1) / threads;  
-    
-    // devInitIterationTileFullDevice<T><<<blocks, threads>>>(devAccelerations, n);
-    
-    // CUDA_CHECK(cudaGetLastError());    
 }
 
 template <typename T>
@@ -201,9 +183,9 @@ __global__ void devComputeBodiesAccelerationTileFullDevice200k(
     }
 
     if (iBody < n_bodies) {
-        devAccelerations.ax[iBody] = accX;
-        devAccelerations.ay[iBody] = accY;
-        devAccelerations.az[iBody] = accZ;
+        devAccelerations.x[iBody] = accX;
+        devAccelerations.y[iBody] = accY;
+        devAccelerations.z[iBody] = accZ;
     }
 }
 
@@ -215,7 +197,8 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
     const int n_bodies,
     const T G,
     const T softSquared,
-    const int elem_per_thread
+    const int elem_per_thread,
+    const T dt
 ){
     constexpr int N = 1;
     constexpr int TILE_SIZE = N * 1024;
@@ -271,18 +254,15 @@ __global__ void devComputeBodiesAccelerationTileFullDevice(
                     accY += ai * rijy;
                     accZ += ai * rijz;
 
-                    #ifdef COMPUTE_ENERGY
-                    
-                    #endif
                 }
             }
             __syncthreads();
         }
 
         if (iBody < n_bodies) {
-            devAccelerations.ax[iBody] = accX;
-            devAccelerations.ay[iBody] = accY;
-            devAccelerations.az[iBody] = accZ;
+            devAccelerations.x[iBody] = accX;
+            devAccelerations.y[iBody] = accY;
+            devAccelerations.z[iBody] = accZ;
         }
     }
 }
@@ -380,15 +360,15 @@ __global__ void devComputeBodiesAccelerationTileFullDevice_2elem(
         }
 
         if (iBody1 < n_bodies) {
-            devAccelerations.ax[iBody1] = accX1;
-            devAccelerations.ay[iBody1] = accY1;
-            devAccelerations.az[iBody1] = accZ1;
+            devAccelerations.x[iBody1] = accX1;
+            devAccelerations.y[iBody1] = accY1;
+            devAccelerations.z[iBody1] = accZ1;
         }
         
         if (iBody2 < n_bodies) {
-            devAccelerations.ax[iBody2] = accX2;
-            devAccelerations.ay[iBody2] = accY2;
-            devAccelerations.az[iBody2] = accZ2;
+            devAccelerations.x[iBody2] = accX2;
+            devAccelerations.y[iBody2] = accY2;
+            devAccelerations.z[iBody2] = accZ2;
         }
     }
 }
@@ -398,9 +378,9 @@ const accSoA_t<T>& SimulationNBodyCUDATileFullDevice<T>::getAccSoA() {
     accSoA.ay.resize(this->getBodies()->getN());
     accSoA.az.resize(this->getBodies()->getN());
     
-    CUDA_CHECK(cudaMemcpy(accSoA.ax.data(), this->devAccelerations.ax, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));        
-    CUDA_CHECK(cudaMemcpy(accSoA.ay.data(), this->devAccelerations.ay, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));     
-    CUDA_CHECK(cudaMemcpy(accSoA.az.data(), this->devAccelerations.az, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));        
+    CUDA_CHECK(cudaMemcpy(accSoA.ax.data(), this->devAccelerations.x, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));        
+    CUDA_CHECK(cudaMemcpy(accSoA.ay.data(), this->devAccelerations.y, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));     
+    CUDA_CHECK(cudaMemcpy(accSoA.az.data(), this->devAccelerations.z, this->getBodies()->getN() * sizeof(T), cudaMemcpyDeviceToHost));        
 
     return accSoA;
 }
@@ -430,7 +410,8 @@ void SimulationNBodyCUDATileFullDevice<T>::computeBodiesAcceleration()
                                                 this->cudaBodiesPtr->getDevDataSoA(),
                                                 this->devGM,
                                                 this->bodies->getN(), this->G, this->softSquared,
-                                                this->_elem_per_thread);
+                                                this->_elem_per_thread,
+                                                this->dt);
     // }
 
         // int n = (int)this->getBodies()->getN();
@@ -447,12 +428,12 @@ void SimulationNBodyCUDATileFullDevice<T>::computeBodiesAcceleration()
 
 template <typename T>
 SimulationNBodyCUDATileFullDevice<T>::~SimulationNBodyCUDATileFullDevice() {
-    CUDA_CHECK(cudaFree(devAccelerations.ax));
-    CUDA_CHECK(cudaFree(devAccelerations.ay));
-    CUDA_CHECK(cudaFree(devAccelerations.az));
+    CUDA_CHECK(cudaFree(devAccelerations.x));
+    CUDA_CHECK(cudaFree(devAccelerations.y));
+    CUDA_CHECK(cudaFree(devAccelerations.z));
 }
 
 template class SimulationNBodyCUDATileFullDevice<float>;
-// template class SimulationNBodyCUDATileFullDevice<double>;
+template class SimulationNBodyCUDATileFullDevice<double>;
 
 #endif

@@ -16,9 +16,9 @@ template <typename T> struct devDataSoA_t {
 
 
 template <typename T> struct devAccSoA_t {
-    T* ax; /*!< Array of accelerations x. */
-    T* ay; /*!< Array of accelerations y. */
-    T* az; /*!< Array of accelerations z. */
+    T* x; /*!< Array of accelerations x. */
+    T* y; /*!< Array of accelerations y. */
+    T* z; /*!< Array of accelerations z. */
 };
 
 template <typename T> class CUDABodies : public Bodies<T> {
@@ -32,16 +32,22 @@ template <typename T> class CUDABodies : public Bodies<T> {
 
     // =============================== DEVICE ATTRIBUTES =================================
     devDataSoA_t<T> devDataSoA;
+    devAccSoA_t<T> devIntermVelocities;
+    devAccSoA_t<T> devNextPositions;
     mutable bool dataOnCPU = false;
 
   public:
     CUDABodies(const unsigned long n, const std::string &scheme = "galaxy", const unsigned long randInit = 0);
+
+    const devAccSoA_t<T>& getDevPositionsBuffer() const;
 
     const devDataSoA_t<T> &getDevDataSoA() const;
     void invalidateDataSoA();
     virtual const dataSoA_t<T> &getDataSoA() const;
     virtual const std::vector<dataAoS_t<T>> &getDataAoS() const;
 
+    virtual void updatePositionsAndVelocitiesLeapfrogOnDevice(const devAccSoA_t<T> &devAccelerations, 
+                                                              T &dt, int iteration, int totalIterations);
     virtual void updatePositionsAndVelocitiesOnDevice(const devAccSoA_t<T> &devAccelerations, T &dt);
     virtual void updatePositionsAndVelocities(const accSoA_t<T> &accelerations, T &dt);
 

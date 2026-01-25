@@ -32,6 +32,7 @@
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
+#include "implem/SimulationNBodyCUDALeapfrog.hpp"
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -100,6 +101,7 @@ void argsReader(int argc, char **argv)
                      "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+full\n"
                      "\t\t\t - \"gpu+tracking\n"
+                     "\t\t\t - \"gpu+leapfrog\n"
                      "\t\t\t ----";
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
@@ -258,6 +260,17 @@ SimulationNBodyInterface<T> *createImplem()
                                                           history,   
                                                           Softening);
     }
+    else if (ImplTag == "gpu+leapfrog") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        std::shared_ptr<GPUSimulationHistory<double>> history 
+            = std::make_shared<GPUSimulationHistory<double>>(NIterations);
+        simu = new SimulationNBodyCUDALeapfrog<T,double>(cudaAllocator, 
+                                                          history,   
+                                                          Softening,
+                                                          NIterations,
+                                                          true);
+    }
+
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
         exit(-1);
@@ -309,7 +322,7 @@ int main(int argc, char **argv)
     argsReader(argc, argv);
 
     // create the n-body simulation
-    SimulationNBodyInterface<float> *simu = createImplem<float>();
+    SimulationNBodyInterface<double> *simu = createImplem<double>();
     NBodies = simu->getBodies()->getN();
 
     // get MB used for this simulation
@@ -330,7 +343,7 @@ int main(int argc, char **argv)
     std::cout << "  -> softening factor  (--soft): " << Softening << std::endl;
 
     // initialize visualization of bodies (with spheres in space)
-    SpheresVisu *visu = createVisu<float>(simu);
+    SpheresVisu *visu = createVisu<double>(simu);
 
     // time step selection
     simu->setDt(Dt);
@@ -379,8 +392,8 @@ int main(int argc, char **argv)
     std::cout << "Entire simulation took " << perfTotal.getElapsedTime() << " ms "
               << "(" << perfTotal.getFPS(iIte - 1) << " FPS" << gflops.str() << ")" << std::endl;
 
-    ((SimulationNBodyCUDAPropertyTracking<float,double>*)simu)->getHistory()->copyFromDevice();
-    ((SimulationNBodyCUDAPropertyTracking<float,double>*)simu)->getHistory()->saveMetricsToCSV("metrics.csv");
+    ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->copyFromDevice();
+    ((SimulationNBodyCUDAPropertyTracking<double,double>*)simu)->getHistory()->saveMetricsToCSV("metrics.csv");
     // free resources
     delete visu;
     delete simu;

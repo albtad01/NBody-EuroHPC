@@ -1,5 +1,5 @@
-#ifndef SIMULATION_N_BODY_CUDA_PROPERTY_TRACKING_CU_
-#define SIMULATION_N_BODY_CUDA_PROPERTY_TRACKING_CU_
+#ifndef SIMULATION_N_BODY_CUDA_LEAPFROG_CU_
+#define SIMULATION_N_BODY_CUDA_LEAPFROG_CU_
 
 //#define COMPUTE_ALL_METRICS 
 #define COMPUTE_ENERGY_METRIC
@@ -17,7 +17,7 @@
 #include <cuda_runtime.h>
 #include <cub/cub.cuh>
 
-#include "SimulationNBodyCUDAPropertyTracking.hpp"
+#include "SimulationNBodyCUDALeapfrog.hpp"
 
 #define CUDA_CHECK(err) do { cuda_check((err), __FILE__, __LINE__); } while(false)
 inline void cuda_check(cudaError_t error_code, const char *file, int line)
@@ -54,11 +54,14 @@ __global__ void devInitializeDevGM(const devDataSoA_t<T> devDataSoA, const int n
 }
 
 template <typename T, typename Q>
-SimulationNBodyCUDAPropertyTracking<T,Q>::SimulationNBodyCUDAPropertyTracking(
+SimulationNBodyCUDALeapfrog<T,Q>::SimulationNBodyCUDALeapfrog(
         const BodiesAllocatorInterface<T>& allocator,  
-        std::shared_ptr<GPUSimulationHistory<Q>> history, const T soft, const bool transfer_each_iteration)
+        std::shared_ptr<GPUSimulationHistory<Q>> history, 
+        int numIterations,
+        const T soft, const bool transfer_each_iteration)
     : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}, 
       GPUHistoryTrackingInterface<Q>(history),
+      numIterations{numIterations},
       transfer_each_iteration{transfer_each_iteration}
 {
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
@@ -113,29 +116,38 @@ SimulationNBodyCUDAPropertyTracking<T,Q>::SimulationNBodyCUDAPropertyTracking(
 
 
 template <typename T, typename Q>
-void SimulationNBodyCUDAPropertyTracking<T,Q>::initIteration()
+void SimulationNBodyCUDALeapfrog<T,Q>::initIteration()
 {
 }
 
 template <typename T, typename Q>
-void SimulationNBodyCUDAPropertyTracking<T,Q>::computeOneIteration()
+void SimulationNBodyCUDALeapfrog<T,Q>::computeOneIteration()
 {
+    this->currentIteration++; // initially currentIteration = -1 so first iteration is 0
+                              // now currentIteration = n
 
-    this->initIteration();
-    this->computeBodiesAcceleration();
-    this->computeMetrics();
-    this->cudaBodiesPtr->updatePositionsAndVelocitiesOnDevice(this->devAccelerations, this->dt);
+    //this->initIteration();
+
+    // computes a_n
+    this->computeBodiesAcceleration();  
+    // computes v_{n+1/2} and x_{n+1}
+    this->cudaBodiesPtr->updatePositionsAndVelocitiesLeapfrogOnDevice(this->devAccelerations, 
+                                        this->dt, this->currentIteration, this->numIterations); 
+                                        
     if ( this->transfer_each_iteration ) {
         this->cudaBodiesPtr->getDataSoA();
     }
-    this->history->copyFromDevice();
-    this->currentIteration++;
+    // this->computeMetrics();  // computes metrics for previous iteration, starting from initial metrics,
+    //                          // since only now v_n is available
+    //                          // In other words, x_{n+1} is not used here
+    // this->history->copyFromDevice();
 }
 
 template <typename T>
-__global__ void devComputeBodiesAccelerationPropertyTracking(
+__global__ void devComputeBodiesAccelerationLeapfrog(
     devAccSoA_t<T> devAccelerations, 
     const devDataSoA_t<T> devDataSoA,
+    const devAccSoA_t<T> devPositionsBuffer,
     const T* devGM,
     const int n_bodies,
     const T softSquared,
@@ -159,9 +171,9 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
         T rix = T(0), riy = T(0), riz = T(0);
 
         if (iBody < n_bodies) {
-            rix = devDataSoA.qx[iBody];
-            riy = devDataSoA.qy[iBody];
-            riz = devDataSoA.qz[iBody];
+            rix = devPositionsBuffer.x[iBody];
+            riy = devPositionsBuffer.y[iBody];
+            riz = devPositionsBuffer.z[iBody];
         }
 
         for (int base_idx = 0; base_idx < n_bodies; base_idx += TILE_SIZE) {
@@ -170,9 +182,9 @@ __global__ void devComputeBodiesAccelerationPropertyTracking(
                 int gg_idx = base_idx + i;
                 if (gg_idx < n_bodies) {
                     SHmg[i] = devGM[gg_idx];
-                    SHqx[i] = devDataSoA.qx[gg_idx];
-                    SHqy[i] = devDataSoA.qy[gg_idx];
-                    SHqz[i] = devDataSoA.qz[gg_idx];
+                    SHqx[i] = devPositionsBuffer.x[gg_idx];
+                    SHqy[i] = devPositionsBuffer.y[gg_idx];
+                    SHqz[i] = devPositionsBuffer.z[gg_idx];
                 } else {
                     SHmg[i] = T(0);
                     SHqx[i] = T(0);
@@ -299,6 +311,7 @@ __global__ void devComputeBodiesMetrics(
             bufferForEnergy[iBody] =
                 potential_energy / Q(2)
               + kinetik_energy   / Q(2);
+
         }
     }
 }
@@ -306,7 +319,7 @@ __global__ void devComputeBodiesMetrics(
 
 
 template <typename T, typename Q>
-const accSoA_t<T>& SimulationNBodyCUDAPropertyTracking<T,Q>::getAccSoA() {
+const accSoA_t<T>& SimulationNBodyCUDALeapfrog<T,Q>::getAccSoA() {
     accSoA.ax.resize(this->getBodies()->getN());
     accSoA.ay.resize(this->getBodies()->getN());
     accSoA.az.resize(this->getBodies()->getN());
@@ -319,19 +332,21 @@ const accSoA_t<T>& SimulationNBodyCUDAPropertyTracking<T,Q>::getAccSoA() {
 }
 
 template <typename T, typename Q>
-void SimulationNBodyCUDAPropertyTracking<T,Q>::computeBodiesAcceleration()
+void SimulationNBodyCUDALeapfrog<T,Q>::computeBodiesAcceleration()
 {
-    devComputeBodiesAccelerationPropertyTracking<T><<<this->_num_blocks, this->_num_threads>>>(
+    devComputeBodiesAccelerationLeapfrog<T><<<this->_num_blocks, this->_num_threads>>>(
                                             this->devAccelerations,
                                             this->cudaBodiesPtr->getDevDataSoA(),
+                                            this->cudaBodiesPtr->getDevPositionsBuffer(),
                                             this->devGM,
                                             this->bodies->getN(), this->softSquared,
                                             this->_elem_per_thread);
+    
     CUDA_CHECK(cudaGetLastError());
 }
 
 template <typename T, typename Q>
-void SimulationNBodyCUDAPropertyTracking<T,Q>::computeMetrics() {
+void SimulationNBodyCUDALeapfrog<T,Q>::computeMetrics() {
     devComputeBodiesMetrics<T,Q><<<this->_num_blocks, this->_num_threads>>>(
                             this->cudaBodiesPtr->getDevDataSoA(),
                             this->devGM,
@@ -369,16 +384,16 @@ void SimulationNBodyCUDAPropertyTracking<T,Q>::computeMetrics() {
 }
 
 template <typename T, typename Q>
-SimulationNBodyCUDAPropertyTracking<T,Q>::~SimulationNBodyCUDAPropertyTracking() {
+SimulationNBodyCUDALeapfrog<T,Q>::~SimulationNBodyCUDALeapfrog() {
     CUDA_CHECK(cudaFree(devAccelerations.x));
     CUDA_CHECK(cudaFree(devAccelerations.y));
     CUDA_CHECK(cudaFree(devAccelerations.z));
     CUDA_CHECK(cudaFree(this->bufferForEnergy));
 }
 
-template class SimulationNBodyCUDAPropertyTracking<float, double>;
-template class SimulationNBodyCUDAPropertyTracking<float, float>;
-template class SimulationNBodyCUDAPropertyTracking<double, double>;
-// template class SimulationNBodyCUDAPropertyTracking<double>;
+template class SimulationNBodyCUDALeapfrog<float, double>;
+template class SimulationNBodyCUDALeapfrog<float, float>;
+template class SimulationNBodyCUDALeapfrog<double, double>;
+// template class SimulationNBodyCUDALeapfrog<double>;
 
 #endif
