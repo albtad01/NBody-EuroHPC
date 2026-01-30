@@ -2,6 +2,11 @@
 # MUrB – PACC (UM5IN160) Project Submission
 
 This repository contains our optimized implementations of the MUrB n-body simulator:
+CPU (naive/optim/SIMD/OpenMP), an MPI prototype, CUDA GPU kernels, and heterogeneous CPU+GPU execution.
+
+Our work is based on the open-source MUrB framework provided for the course and **extends/modifies it substantially**
+(e.g., additional kernels/implementations, optimizations, build/run presets, and experimental variants).
+This repository contains our optimized implementations of the MUrB n-body simulator:
 CPU (naive/optim/SIMD/OpenMP), MPI prototype, CUDA GPU kernels, and heterogeneous CPU+GPU execution.
 
 ## 1) Build 
@@ -115,3 +120,27 @@ export OMP_SCHEDULE=static
 srun -p az4-n4090 -n 1 --cpus-per-task=12 --threads-per-core=1 --cpu-bind=cores --export=ALL \
 	./build/bin/murb -n 30000 -i 60 --nv --im hetero --gf
 ```
+
+## 4) License & attribution (MIT)
+
+This repository contains code derived from the **MUrB framework** developed at **Sorbonne University, LIP6**,
+released under the **MIT License**.
+
+Per the MIT License terms, the corresponding copyright notice and permission notice
+must be included in all copies or substantial portions of the software.
+
+- The full license text is provided in the `LICENSE` file.
+- Copyright (c) 2023 Sorbonne University, LIP6.
+
+If you redistribute or reuse substantial portions of this repository, keep the `LICENSE` file
+and preserve the attribution above.
+
+---
+
+## 5) Disclaimer
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
