@@ -1,6 +1,8 @@
 
 # MUrB – PACC (UM5IN160) Project Submission
 
+![MUrB demo](assets/demo.gif)
+
 This repository contains our optimized implementations of the MUrB n-body simulator:
 CPU (naive/optim/SIMD/OpenMP), an MPI prototype, CUDA GPU kernels, and heterogeneous CPU+GPU execution.
 
