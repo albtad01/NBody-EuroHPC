@@ -1,2 +1,5 @@
 build/
 power_tracking_*
+# macOS
+.DS_Store
+**/.DS_Store
