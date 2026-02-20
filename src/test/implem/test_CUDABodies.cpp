@@ -1,3 +1,4 @@
+
 #include <algorithm>
 #include <catch.hpp>
 #include <cmath>
@@ -7,6 +8,7 @@
 #include <string>
 #include <iostream>
 
+#ifdef USE_CUDA
 #include "core/Bodies.hpp"
 #include "core/CUDABodies.hpp"
 
@@ -79,3 +81,4 @@ TEST_CASE("CUDABodies", "[cudabds]")
     SECTION("fp32 - n=4000 - random - update") { test_cuda_bodies_update(4000, "random"); }
     SECTION("fp32 - n=4000 - galaxy - update") { test_cuda_bodies_update(4000, "galaxy"); }
 }
+#endif
