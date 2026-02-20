@@ -1,0 +1,43 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_VISU": "OFF",
+        "ENABLE_MURB_CUDA": "OFF"
+      }
+    },
+    {
+      "name": "mac",
+      "inherits": "base",
+      "description": "Build per macOS (No CUDA, Visu ON)",
+      "cacheVariables": {
+        "ENABLE_VISU": "ON",
+        "CMAKE_CXX_STANDARD": "14"
+      }
+    },
+    {
+      "name": "leonardo",
+      "inherits": "base",
+      "description": "Build per Leonardo Booster (A100)",
+      "cacheVariables": {
+        "ENABLE_MURB_CUDA": "ON",
+        "CMAKE_CUDA_ARCHITECTURES": "80",
+        "ENABLE_MURB_OMP": "ON"
+      }
+    },
+    {
+      "name": "generic",
+      "inherits": "base",
+      "description": "Build generica Linux CPU-only",
+      "cacheVariables": {
+        "ENABLE_MURB_OMP": "ON"
+      }
+    }
+  ]
+}

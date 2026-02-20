@@ -3,3 +3,7 @@ power_tracking_*
 # macOS
 .DS_Store
 **/.DS_Store
+build-*/
+logs/
+scripts/logs/
+*.ncu-rep
