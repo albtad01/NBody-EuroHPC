@@ -23,13 +23,16 @@
 #include "implem/SimulationNBodyOptim.hpp"
 #include "implem/SimulationNBodySIMD.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp" 
-#include "implem/SimulationNBodyHetero.hpp"
 #include "implem/SimulationNBodyMultiNode.hpp"
+
+#ifdef USE_CUDA
+#include "implem/SimulationNBodyHetero.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
 #include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
 #include "implem/SimulationNBodyCUDALeapfrog.hpp"
+#endif
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -221,18 +224,19 @@ SimulationNBodyInterface<T> *createImplem()
     else if (ImplTag == "cpu+omp") {
         simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
     }
-    else if (ImplTag == "hetero") {
-        simu = new SimulationNBodyHetero<T>(allocator, Softening);
-    }
      else if (ImplTag == "mpi") {
          simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+    }
+#ifdef USE_CUDA
+    else if (ImplTag == "hetero") {
+        simu = new SimulationNBodyHetero<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile") {
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
-        simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
+        simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening, false);
     }
     else if (ImplTag == "gpu+tile+full200k") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
@@ -256,6 +260,7 @@ SimulationNBodyInterface<T> *createImplem()
                                                           NIterations,
                                                           true);
     }
+#endif
 
     else {
         std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
@@ -347,6 +352,21 @@ int main(int argc, char **argv)
         // simulation computations
         perfIte.start();
         simu->computeOneIteration();
+
+#ifdef USE_CUDA
+        cudaError_t launchErr = cudaGetLastError();
+        if (launchErr != cudaSuccess) {
+            std::cerr << "CUDA launch error: " << cudaGetErrorString(launchErr) << "\n";
+            return EXIT_FAILURE;
+        }
+
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            std::cerr << "CUDA sync error: " << cudaGetErrorString(syncErr) << "\n";
+            return EXIT_FAILURE;
+        }
+#endif
+
         perfIte.stop();
         perfTotal += perfIte;
 
@@ -368,7 +388,6 @@ int main(int argc, char **argv)
     }
     if (Verbose)
         std::cout << std::endl;
-
     std::cout << "Simulation ended." << std::endl << std::endl;
 
     std::stringstream gflops;

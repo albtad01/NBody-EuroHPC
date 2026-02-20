@@ -4,7 +4,9 @@
 #include <memory>
 
 #include "SimulationHistory.hpp"
+#ifdef USE_CUDA
 #include "SimulationHistoryGPU.hpp"
+#endif
 
 template <typename T>
 class HistoryTrackingInterface {
@@ -15,6 +17,7 @@ class HistoryTrackingInterface {
         const std::shared_ptr<SimulationHistory<T>> getHistory() const;
 };
 
+#ifdef USE_CUDA
 template <typename T>
 class GPUHistoryTrackingInterface {
     protected:
@@ -23,5 +26,6 @@ class GPUHistoryTrackingInterface {
         GPUHistoryTrackingInterface(std::shared_ptr<GPUSimulationHistory<T>> history);
         const std::shared_ptr<GPUSimulationHistory<T>> getHistory() const;
 };
+#endif
 
 #endif

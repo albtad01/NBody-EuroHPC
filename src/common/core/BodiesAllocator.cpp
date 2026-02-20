@@ -21,6 +21,7 @@ std::shared_ptr<Bodies<T>> BodiesAllocator<T>::allocate_shared() const
     return std::make_shared<Bodies<T>>(n, scheme, randInit);
 }
 
+#ifdef USE_CUDA
 template <typename T>
 CUDABodiesAllocator<T>::CUDABodiesAllocator(const unsigned long n, const std::string &scheme, 
                                  const unsigned long randInit) 
@@ -42,8 +43,12 @@ std::shared_ptr<Bodies<T>> CUDABodiesAllocator<T>::allocate_shared() const
 {
     return std::make_shared<CUDABodies<T>>(n, scheme, randInit);
 }
+#endif
 
 template class BodiesAllocator<float>;
 template class BodiesAllocator<double>;
+
+#ifdef USE_CUDA
 template class CUDABodiesAllocator<float>;
 template class CUDABodiesAllocator<double>;
+#endif

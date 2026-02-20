@@ -156,14 +156,17 @@ template <typename T>
 void CUDABodies<T>::updatePositionsAndVelocitiesOnDevice(const devAccSoA_t<T> &devAccelerations, T &dt) 
 {
     this->invalidateDataSoA();
-    int threads = 1024;
-    int blocks = (this->n + threads - 1) / threads;  
-    if ( blocks == 1 ) {
-        threads = this->n;
-    }
-    devUpdatePositionsAndVelocities<T><<<blocks, threads>>>(devAccelerations, dt, this->devDataSoA, this->n);
-    cudaDeviceSynchronize();
+
+    constexpr int threads = 256;
+    int blocks = (this->n + threads - 1) / threads;
+
+    devUpdatePositionsAndVelocities<T><<<blocks, threads>>>(
+        devAccelerations, dt, this->devDataSoA, this->n
+    );
+
+    cudaGetLastError();
 }
+
 
 
 /* 
@@ -321,31 +324,32 @@ __global__ void devLeapfrogLast(const devAccSoA_t<T> devAccelerations,
 }
 
 template <typename T>
-void CUDABodies<T>::updatePositionsAndVelocitiesLeapfrogOnDevice(const devAccSoA_t<T> &devAccelerations, T &dt, int iteration, int totalIterations) 
+void CUDABodies<T>::updatePositionsAndVelocitiesLeapfrogOnDevice(
+    const devAccSoA_t<T> &devAccelerations, T &dt, int iteration, int totalIterations) 
 {
     this->invalidateDataSoA();
-    int threads = 1024;
-    int blocks = (this->n + threads - 1) / threads;  
-    if ( blocks == 1 ) {
-        threads = this->n;
-    }
-    if ( iteration == 0 ) {
-        devLeapfrogFirst<T><<<blocks, threads>>>(devAccelerations, 
-                                                 this->devIntermVelocities, this->devNextPositions,
-                                                 this->devDataSoA, this->n, dt);
-    } else if ( iteration < totalIterations - 1 ) {
-        devLeapfrogMiddle<T><<<blocks, threads>>>(devAccelerations, 
-                                                 this->devIntermVelocities, this->devNextPositions,
-                                                 this->devDataSoA, this->n, dt);
-    } else {   // Last iteration!
-        devLeapfrogLast<T><<<blocks, threads>>>(devAccelerations, 
-                                                 this->devIntermVelocities, this->devNextPositions,
-                                                 this->devDataSoA, this->n, dt);
+
+    constexpr int threads = 256;
+    int blocks = (this->n + threads - 1) / threads;
+
+    if (iteration == 0) {
+        devLeapfrogFirst<T><<<blocks, threads>>>(devAccelerations,
+            this->devIntermVelocities, this->devNextPositions,
+            this->devDataSoA, this->n, dt);
+    } else if (iteration < totalIterations - 1) {
+        devLeapfrogMiddle<T><<<blocks, threads>>>(devAccelerations,
+            this->devIntermVelocities, this->devNextPositions,
+            this->devDataSoA, this->n, dt);
+    } else {
+        devLeapfrogLast<T><<<blocks, threads>>>(devAccelerations,
+            this->devIntermVelocities, this->devNextPositions,
+            this->devDataSoA, this->n, dt);
     }
 
-    // Maybe removable?
-    cudaDeviceSynchronize();
+    cudaGetLastError();
+    // NO cudaDeviceSynchronize() qui
 }
+
 
 template <typename T>
 void CUDABodies<T>::updatePositionsAndVelocities(const accSoA_t<T> &accelerations, T &dt) 

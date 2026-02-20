@@ -2,8 +2,10 @@
 #define BODIES_ALLOCATOR_HPP_
 
 #include "core/Bodies.hpp"
-#include "core/CUDABodies.hpp"
 #include <memory>
+#ifdef USE_CUDA
+#include "core/CUDABodies.hpp"
+#endif
 
 template <typename T>
 class BodiesAllocatorInterface {
@@ -27,6 +29,7 @@ class BodiesAllocator : public BodiesAllocatorInterface<T> {
         const unsigned long randInit;
 };
 
+#ifdef USE_CUDA
 template <typename T>
 class CUDABodiesAllocator : public BodiesAllocatorInterface<T> {
     public:
@@ -41,5 +44,6 @@ class CUDABodiesAllocator : public BodiesAllocatorInterface<T> {
         const std::string &scheme;
         const unsigned long randInit;
 };
+#endif
 
 #endif
