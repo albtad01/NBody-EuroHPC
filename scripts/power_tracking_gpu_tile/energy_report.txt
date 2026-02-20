@@ -1,0 +1,35 @@
+SUMMARY (energy log: power_tracking_gpu_tile/energy.log)
+Partition: az4-n4090
+Total timestamps parsed: 3166
+Total steps integrated: 3157
+Measured window duration: 5.000 seconds
+Seconds per ts-unit (estimated): 0.000994431 s
+
+MEAN WATTAGE (W):
+  GPU   : 503.736 W
+  CPU   : 45.473 W
+  RAM   : 2.493 W
+  MBOARD: 11.421 W
+  TOTAL : 563.122 W
+
+POWER VARIANCE (W^2):
+  GPU   : 577769.358814
+  CPU   : 24922.282615
+  RAM   : 14.585757
+  MBOARD: 304.131567
+  TOTAL : 597564.077005
+
+ENERGY CONSUMED over 5.000 s:
+  GPU   : 2211.758 J
+  CPU   : 230.501000 J
+  RAM   : 12.165000 J
+  MBOARD: 55.721000 J
+  TOTAL : 2510.145000 J
+
+ADDITIONAL METRICS:
+  Steps per second (approx): 631.400
+  TOTAL POWER min/max: 0.000/24235.966 W
+  Energy variance (per-step): 1.751693 (J^2)
+  FPS/Watt (avg): 0.012246 FPS/W
+  Joules per frame (avg): 81.659006 J/frame
+  FPS (from murb.log): 6.89602

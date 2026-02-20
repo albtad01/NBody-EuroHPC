@@ -1,0 +1,16 @@
+n-body simulation configuration:
+--------------------------------
+  -> bodies scheme     (-s    ): galaxy
+  -> implementation    (--im  ): gpu+tile
+  -> nb. of bodies     (-n    ): 500000
+  -> nb. of iterations (-i    ): 100
+  -> verbose mode      (-v    ): disable
+  -> precision                 : fp32
+  -> mem. allocated            : 36.2396 MB
+  -> geometry shader   (--ngs ): enable
+  -> time step         (--dt  ): 3600.000000 sec
+  -> softening factor  (--soft): 2e+08
+Simulation started...
+Simulation ended.
+
+Entire simulation took 14501.1 ms (6.89602 FPS)

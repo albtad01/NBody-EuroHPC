@@ -55,7 +55,7 @@ template <typename T> void OGLSpheresVisuGS<T>::refreshDisplay()
         if (this->shaderProgramRef != 0)
             glUseProgram(this->shaderProgramRef);
 
-        // 1rst attribute buffer : vertex positions
+        // 1st attribute buffer : vertex positions
         int iBufferIndex;
         for (iBufferIndex = 0; iBufferIndex < 3; iBufferIndex++) {
             glEnableVertexAttribArray(iBufferIndex);
@@ -82,69 +82,100 @@ template <typename T> void OGLSpheresVisuGS<T>::refreshDisplay()
             (void *)0       // array buffer offset
         );
 
-        // 3rd attribute buffer : vertex velocities
+        // 3rd attribute buffer : vertex velocities / colors
         if (this->velocitiesX && this->color) {
-            // for (int i = 0; i < 3; i++) {
-            //     glEnableVertexAttribArray(iBufferIndex);
-            //     glBindBuffer(GL_ARRAY_BUFFER, this->accelerationBufferRef[i]);
-            //     glVertexAttribPointer(
-            //         iBufferIndex++, // attribute. No particular reason for 0, but must match the layout in the
-            //         shader. 1,              // size GL_FLOAT,       // type GL_FALSE,       // normalized? 0, //
-            //         stride (void *)0       // array buffer offset
-            //     );
-            // }
+            
+            // --- CYBERPUNK AUDIO-SYNC LOGIC ---
+            
+            // 1. Get current time for synchronization
+            double time = glfwGetTime();
+            
+            // "Move Your Body" by Eiffel 65 is approx 130 BPM.
+            // 130 beats / 60 seconds = 2.166 Hz.
+            double bpm = 130.0;
+            double freq = bpm / 60.0;
+            
+            // beatPhase is the current angle in the rhythmic cycle
+            double beatPhase = time * freq * 2.0 * 3.14159;
 
-            // compute colors
+            // Create a sharp "Kick" impulse (0.0 to 1.0)
+            // Power of 8 compresses the wave to simulate a drum kick (short peak, long silence)
+            float beatPulse = (float)pow((sin(beatPhase) + 1.0) / 2.0, 8.0); 
+
+            // compute colors: First pass to find Min/Max velocity for normalization
             float min = std::numeric_limits<float>::max();
             float max = std::numeric_limits<float>::min();
+            
             for (long unsigned int i = 0; i < this->nSpheres; i++) {
-                const float accXPerVertex = this->velocitiesXBuffer[i];
-                const float accYPerVertex = this->velocitiesYBuffer[i];
-                const float accZPerVertex = this->velocitiesZBuffer[i];
-
-                const float normX = accXPerVertex * accXPerVertex;
-                const float normY = accYPerVertex * accYPerVertex;
-                const float normZ = accZPerVertex * accZPerVertex;
-
-                const float norm = normX + normY + normZ;
-
-                this->colorBuffer[i * 3 + 0] = norm;
-
+                const float accX = this->velocitiesXBuffer[i];
+                const float accY = this->velocitiesYBuffer[i];
+                const float accZ = this->velocitiesZBuffer[i];
+                
+                // Calculate squared norm (approximation of speed/energy)
+                const float norm = accX * accX + accY * accY + accZ * accZ;
+                
+                // Temporarily store the norm in the Red channel to reuse it in the next loop
+                this->colorBuffer[i * 3 + 0] = norm; 
+                
                 min = std::min(min, norm);
                 max = std::max(max, norm);
             }
 
-            static uint8_t MAPPING_R[16] = {106, 153, 204, 255, 248, 241, 211, 134,  57,  24,  12,   0,  4,  9, 25, 66};
-            static uint8_t MAPPING_G[16] = { 52,  87, 128, 170, 201, 233, 236, 181, 125,  82,  44,   7,  4,  1,  7, 30};
-            static uint8_t MAPPING_B[16] = {  3,   0,   0,   0,  95, 191, 248, 229, 209, 177, 138, 100, 73, 47, 26, 15};
-
-            // static uint8_t MAPPING_R[10] = { 3, 55, 106, 157, 208, 220, 232, 244, 250, 255};
-            // static uint8_t MAPPING_G[10] = { 7,  6,   4,   2,   0,  47,  93, 140, 163, 186};
-            // static uint8_t MAPPING_B[10] = {30, 23,  15,   8,   0,   2,   4,   6,   7,   8};
-
+            // Second pass: Apply Cyberpunk Colors
             for (long unsigned int i = 0; i < this->nSpheres; i++) {
                 const float norm = this->colorBuffer[i * 3 + 0];
+                
+                // 't' is the normalized velocity factor: 0.0 (Slowest) -> 1.0 (Fastest)
+                float t = (norm - min) / (max - min + 1e-6f); // +epsilon to avoid div by zero
+                
+                // --- DYNAMIC CYBERPUNK PALETTE ---
+                
+                // 1. Slow Bodies (t close to 0): Deep Space Blue/Black
+                // They blend with the background to emphasize the structure
+                float r = 0.0f;
+                float g = 0.02f;
+                float b = 0.1f;
 
-                // const unsigned colorRange = 2 * sizeof(MAPPING_R) -1;
-                const unsigned colorRange = 1 * sizeof(MAPPING_R) - 1;
+                // 2. Fast Bodies (t increases): Gradient to Electric Cyan
+                // We mix in the "Speed Color" based on 't'
+                if (t > 0.1f) {
+                    // Linear interpolation towards Cyan (0, 1, 1)
+                    r += t * 0.1f;  // Slight white tint for very fast ones
+                    g += t * 0.9f;  // Green ramps up to create Cyan
+                    b += t * 1.5f;  // Blue saturates quickly
+                }
 
-                const float mix = (norm - min) / (max - min);
-                const int n = (int)(mix * colorRange);
+                // 3. STROBE EFFECT (Bass/Kick)
+                // When the music hits ('beatPulse' is high), we flash the fast particles
+                // This creates the "Energy Core" pulsing effect
+                if (t > 0.25f) {
+                    float flash = beatPulse * 0.8f; // Flash intensity
+                    
+                    // Add flash to all channels (Whitening)
+                    r += flash;
+                    g += flash;
+                    b += flash;
+                }
 
-                const float red = MAPPING_R[(n) % sizeof(MAPPING_R)] / 255.f;
-                const float green = MAPPING_G[(n) % sizeof(MAPPING_G)] / 255.f;
-                const float blue = MAPPING_B[(n) % sizeof(MAPPING_B)] / 255.f;
+                // 4. Hyper-Speed Glow
+                // Very fast particles are always bright white/cyan
+                if (t > 0.8f) {
+                    r = 0.8f + beatPulse * 0.2f;
+                    g = 1.0f;
+                    b = 1.0f;
+                }
 
-                this->colorBuffer[i * 3 + 0] = red;
-                this->colorBuffer[i * 3 + 1] = green;
-                this->colorBuffer[i * 3 + 2] = blue;
+                // Final Clamp to ensure valid color range [0.0, 1.0]
+                this->colorBuffer[i * 3 + 0] = std::min(r, 1.0f);
+                this->colorBuffer[i * 3 + 1] = std::min(g, 1.0f);
+                this->colorBuffer[i * 3 + 2] = std::min(b, 1.0f);
             }
 
             glEnableVertexAttribArray(iBufferIndex);
             glBindBuffer(GL_ARRAY_BUFFER, this->colorBufferRef);
             glVertexAttribPointer(
-                iBufferIndex++, // attribute. No particular reason for 0, but must match the layout in the shader.
-                3,              // size
+                iBufferIndex++, // attribute.
+                3,              // size (R, G, B)
                 GL_FLOAT,       // type
                 GL_FALSE,       // normalized?
                 0,              // stride
@@ -159,7 +190,7 @@ template <typename T> void OGLSpheresVisuGS<T>::refreshDisplay()
         // in the "MVP" uniform
         glUniformMatrix4fv(this->mvpRef, 1, GL_FALSE, &this->mvp[0][0]);
 
-        // Draw the triangle !
+        // Draw the particles!
         glDrawArrays(GL_POINTS, 0, this->nSpheres);
 
         glDisableVertexAttribArray(0);
@@ -172,9 +203,6 @@ template <typename T> void OGLSpheresVisuGS<T>::refreshDisplay()
 
         // Poll for and process events
         glfwPollEvents();
-
-        // Sleep if necessary
-        // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
 

@@ -18,11 +18,22 @@
 #include "utils/ArgumentsReader.hpp"
 #include "utils/Perf.hpp"
 
+// --- IMPLEMENTAZIONI CPU (Compilano ovunque) ---
 #include "implem/SimulationNBodyNaive.hpp"
-// #include "implem/SimulationNBodyCUDABase.hpp"
-#include "implem/SimulationNBodyCUDATile.hpp"
-#include "implem/SimulationNBodyCUDATileFullDevice.hpp"
-// #include "implem/SimulationNBodyCpuOptim.hpp"
+#include "implem/SimulationNBodyOptim.hpp"
+#include "implem/SimulationNBodyOptim_Exact.hpp"
+#include "implem/SimulationNBodySIMD.hpp"
+#include "implem/SimulationNBodySIMD_Exact.hpp" 
+#include "implem/SimulationNBodyOpenMP.hpp"
+#include "implem/SimulationNBodyOpenMP_Exact.hpp" 
+#include "implem/SimulationNBodyOpenMP_Green.hpp" 
+
+// --- IMPLEMENTAZIONI DISABILITATE PER MAC/LOCALE ---
+// (Commentate per evitare errori di linker su macchine senza GPU/MPI)
+// #include "implem/SimulationNBodyHetero.hpp"
+// #include "implem/SimulationNBodyMultiNode.hpp"
+// #include "implem/SimulationNBodyCUDATile.hpp"
+// #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
@@ -41,13 +52,6 @@ unsigned int LocalWGSize = 32;       /*!< OpenCL local workgroup size. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
 
-/*!
- * \fn     void argsReader(int argc, char** argv)
- * \brief  Read arguments from command line and set global variables.
- *
- * \param  argc : Number of arguments.
- * \param  argv : Array of arguments.
- */
 void argsReader(int argc, char **argv)
 {
     std::map<std::string, std::string> reqArgs, faculArgs, docArgs;
@@ -76,14 +80,16 @@ void argsReader(int argc, char **argv)
     docArgs["-nv"] = "no visualization (disable visu).";
     faculArgs["-nvc"] = "";
     docArgs["-nvc"] = "visualization without colors.";
+    
     faculArgs["-im"] = "ImplTag";
     docArgs["-im"] = "code implementation tag:\n"
                      "\t\t\t - \"cpu+naive\"\n"
-                    //  "\t\t\t - \"cpu+optim\"\n"
-                    //  "\t\t\t - \"gpu+base\"\n"
-                     "\t\t\t - \"gpu+tile\"\n"
-                     "\t\t\t - \"gpu+tile+full\"\n"
-                     "\t\t\t ----";
+                     "\t\t\t - \"cpu+optim\" / \"cpu+optim+exact\"\n"
+                     "\t\t\t - \"cpu+simd\" / \"cpu+simd+exact\"\n"
+                     "\t\t\t - \"cpu+omp\" / \"cpu+omp+exact\"\n"
+                     "\t\t\t - \"cpu+green\" (Energy Efficient)\n"
+                     "\t\t\t ---- (GPU/MPI disabled on Mac) ----";
+
     faculArgs["-soft"] = "softeningFactor";
     docArgs["-soft"] = "softening factor.";
 #ifdef USE_OCL
@@ -115,22 +121,14 @@ void argsReader(int argc, char **argv)
         exit(-1);
     }
 
-    if (argsReader.exist_argument("v"))
-        Verbose = true;
-    if (argsReader.exist_argument("-dt"))
-        Dt = stof(argsReader.get_argument("-dt"));
-    if (argsReader.exist_argument("-ngs"))
-        GSEnable = false;
-    if (argsReader.exist_argument("-ww"))
-        WinWidth = stoi(argsReader.get_argument("-ww"));
-    if (argsReader.exist_argument("-wh"))
-        WinHeight = stoi(argsReader.get_argument("-wh"));
-    if (argsReader.exist_argument("-nv"))
-        VisuEnable = false;
-    if (argsReader.exist_argument("-nvc"))
-        VisuColor = false;
-    if (argsReader.exist_argument("-im"))
-        ImplTag = argsReader.get_argument("-im");
+    if (argsReader.exist_argument("v")) Verbose = true;
+    if (argsReader.exist_argument("-dt")) Dt = stof(argsReader.get_argument("-dt"));
+    if (argsReader.exist_argument("-ngs")) GSEnable = false;
+    if (argsReader.exist_argument("-ww")) WinWidth = stoi(argsReader.get_argument("-ww"));
+    if (argsReader.exist_argument("-wh")) WinHeight = stoi(argsReader.get_argument("-wh"));
+    if (argsReader.exist_argument("-nv")) VisuEnable = false;
+    if (argsReader.exist_argument("-nvc")) VisuColor = false;
+    if (argsReader.exist_argument("-im")) ImplTag = argsReader.get_argument("-im");
     if (argsReader.exist_argument("-soft")) {
         Softening = stof(argsReader.get_argument("-soft"));
         if (Softening == 0.f) {
@@ -139,77 +137,76 @@ void argsReader(int argc, char **argv)
         }
     }
 #ifdef USE_OCL
-    if (argsReader.exist_argument("-wg"))
-        LocalWGSize = stoi(argsReader.get_argument("-wg"));
+    if (argsReader.exist_argument("-wg")) LocalWGSize = stoi(argsReader.get_argument("-wg"));
 #endif
-    if (argsReader.exist_argument("s"))
-        BodiesScheme = argsReader.get_argument("s");
-    if (argsReader.exist_argument("-gf"))
-        ShowGFlops = true;
+    if (argsReader.exist_argument("s")) BodiesScheme = argsReader.get_argument("s");
+    if (argsReader.exist_argument("-gf")) ShowGFlops = true;
 }
 
-/*!
- * \fn     string strDate(float timestamp)
- * \brief  Convert a timestamp into a string "..d ..h ..m ..s".
- *
- * \param  Timestamp : The timestamp to convert
- *
- * \return Date as a string.
- */
 std::string strDate(float timestamp)
 {
-    unsigned int days;
-    unsigned int hours;
-    unsigned int minutes;
-    float rest;
-
-    days = timestamp / (24 * 60 * 60);
-    rest = timestamp - (days * 24 * 60 * 60);
-
-    hours = rest / (60 * 60);
+    unsigned int days = timestamp / (24 * 60 * 60);
+    float rest = timestamp - (days * 24 * 60 * 60);
+    unsigned int hours = rest / (60 * 60);
     rest = rest - (hours * 60 * 60);
-
-    minutes = rest / 60;
+    unsigned int minutes = rest / 60;
     rest = rest - (minutes * 60);
 
     std::stringstream res;
     res << std::setprecision(0) << std::fixed << std::setw(4) << days << "d " << std::setprecision(0) << std::fixed
         << std::setw(4) << hours << "h " << std::setprecision(0) << std::fixed << std::setw(4) << minutes << "m "
         << std::setprecision(3) << std::fixed << std::setw(5) << rest << "s";
-
     return res.str();
 }
 
-/*!
- * \fn     SimulationNBodyInterface *createImplem()
- * \brief  Select and allocate an n-body simulation object.
- *
- * \return A fresh allocated simulation.
- */
 template <typename T>
 SimulationNBodyInterface<T> *createImplem()
 {
     SimulationNBodyInterface<T> *simu = nullptr;
+    BodiesAllocator<T> allocator(NBodies, BodiesScheme);
+
     if (ImplTag == "cpu+naive") {
-        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyNaive<T>(allocator, Softening);
     }
-    // else if (ImplTag == "cpu+optim") {
-    //     simu = new SimulationNBodyCpuOptim(NBodies, BodiesScheme, Softening);
-    // }
-    // else if (ImplTag == "gpu+base") {
-    //     simu = new SimulationNBodyCUDABase(NBodies, BodiesScheme, Softening);
-    // }
+    else if (ImplTag == "cpu+optim") {
+        simu = new SimulationNBodyOptim<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+optim+exact") {
+        simu = new SimulationNBodyOptim_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+simd") {
+        simu = new SimulationNBodySIMD<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+simd+exact") {
+        simu = new SimulationNBodySIMD_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+omp") {
+        simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+omp+exact") {
+        simu = new SimulationNBodyOpenMP_Exact<T>(allocator, Softening);
+    }
+    else if (ImplTag == "cpu+green" || ImplTag == "cpu+eco") {
+        simu = new SimulationNBodyOpenMP_Green<T>(allocator, Softening);
+    }
+    // --- DISABILITATI SU MAC PER EVITARE ERRORI DI LINKER ---
+    /*
+    else if (ImplTag == "hetero") {
+        simu = new SimulationNBodyHetero<T>(allocator, Softening);
+    }
+    else if (ImplTag == "mpi") {
+        simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+    }
     else if (ImplTag == "gpu+tile") {
-        BodiesAllocator<T> allocator(NBodies, BodiesScheme);
         simu = new SimulationNBodyCUDATile<T>(allocator, Softening);
     }
     else if (ImplTag == "gpu+tile+full") {
-        CUDABodiesAllocator<T> allocator(NBodies, BodiesScheme);
-        simu = new SimulationNBodyCUDATileFullDevice(allocator, Softening);
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening);
     }
+    */
     else {
-        std::cout << "Implementation '" << ImplTag << "' does not exist... Exiting." << std::endl;
+        std::cout << "Implementation '" << ImplTag << "' does not exist (or disabled on Mac)... Exiting." << std::endl;
         exit(-1);
     }
     return simu;
@@ -219,20 +216,17 @@ template <typename T>
 SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu)
 {
     SpheresVisu *visu;
-
 #ifdef VISU
     if (VisuEnable) {
         const T *positionsX = simu->getBodies()->getDataSoA().qx.data();
         const T *positionsY = simu->getBodies()->getDataSoA().qy.data();
         const T *positionsZ = simu->getBodies()->getDataSoA().qz.data();
-
         const T *velocitiesX = simu->getBodies()->getDataSoA().vx.data();
         const T *velocitiesY = simu->getBodies()->getDataSoA().vy.data();
         const T *velocitiesZ = simu->getBodies()->getDataSoA().vz.data();
-
         const T *radiuses = simu->getBodies()->getDataSoA().r.data();
 
-        if (GSEnable) // geometry shader = better performances on dedicated GPUs
+        if (GSEnable)
             visu = new OGLSpheresVisuGS<T>("MUrB n-body (geometry shader)", WinWidth, WinHeight, positionsX,
                                                positionsY, positionsZ, velocitiesX, velocitiesY, velocitiesZ, radiuses,
                                                NBodies, VisuColor);
@@ -248,90 +242,44 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu)
     VisuEnable = false;
     visu = new SpheresVisuNo<T>();
 #endif
-
     return visu;
 }
 
 int main(int argc, char **argv)
 {
-    // read arguments from the command line
-    // usage: ./nbody -n nBodies  -i nIterations [-v] [-w] ...
     argsReader(argc, argv);
-
-    // create the n-body simulation
     SimulationNBodyInterface<float> *simu = createImplem<float>();
     NBodies = simu->getBodies()->getN();
-
-    // get MB used for this simulation
     float Mbytes = simu->getAllocatedBytes() / 1024.f / 1024.f;
 
-    // display simulation configuration
     std::cout << "n-body simulation configuration:" << std::endl;
     std::cout << "--------------------------------" << std::endl;
-    std::cout << "  -> bodies scheme     (-s    ): " << BodiesScheme << std::endl;
     std::cout << "  -> implementation    (--im  ): " << ImplTag << std::endl;
     std::cout << "  -> nb. of bodies     (-n    ): " << NBodies << std::endl;
-    std::cout << "  -> nb. of iterations (-i    ): " << NIterations << std::endl;
-    std::cout << "  -> verbose mode      (-v    ): " << ((Verbose) ? "enable" : "disable") << std::endl;
-    std::cout << "  -> precision                 : " << "fp32" << std::endl;
-    std::cout << "  -> mem. allocated            : " << Mbytes << " MB" << std::endl;
-    std::cout << "  -> geometry shader   (--ngs ): " << ((GSEnable) ? "enable" : "disable") << std::endl;
-    std::cout << "  -> time step         (--dt  ): " << std::to_string(Dt) + " sec" << std::endl;
-    std::cout << "  -> softening factor  (--soft): " << Softening << std::endl;
-
-    // initialize visualization of bodies (with spheres in space)
+    
     SpheresVisu *visu = createVisu<float>(simu);
-
-    // time step selection
     simu->setDt(Dt);
 
     std::cout << "Simulation started..." << std::endl;
 
-    // loop over the iterations
     Perf perfIte, perfTotal;
     float physicTime = 0.f;
     unsigned long iIte;
     for (iIte = 1; iIte <= NIterations && !visu->windowShouldClose(); iIte++) {
-        // refresh the display in OpenGL window
         visu->refreshDisplay();
-
-        // simulation computations
         perfIte.start();
         simu->computeOneIteration();
         perfIte.stop();
         perfTotal += perfIte;
-
-        // compute the elapsed physic time
         physicTime += simu->getDt();
 
-        // display the status of this iteration
         if (Verbose) {
-            std::stringstream gflops;
-            if (ShowGFlops)
-                gflops << ", " << std::setprecision(1) << std::fixed << std::setw(6)
-                       << perfTotal.getGflops(simu->getFlopsPerIte() * iIte) << " Gflop/s";
             std::cout << "Iteration n°" << std::setw(4) << iIte << " (" << std::setprecision(1) << std::fixed
-                      << std::setw(6) << perfTotal.getFPS(iIte) << " FPS" << gflops.str()
-                      << "), physic time: " << strDate(physicTime) << "\r";
-            if (iIte % 5 == 0)
-                std::cout << std::flush;
+                      << std::setw(6) << perfTotal.getFPS(iIte) << " FPS)\r" << std::flush;
         }
     }
-    if (Verbose)
-        std::cout << std::endl;
-
-    std::cout << "Simulation ended." << std::endl << std::endl;
-
-    std::stringstream gflops;
-    if (ShowGFlops)
-        gflops << ", " << std::setprecision(1) << std::fixed << std::setw(6)
-               << perfTotal.getGflops(simu->getFlopsPerIte() * (iIte - 1)) << " Gflop/s";
-    std::cout << "Entire simulation took " << perfTotal.getElapsedTime() << " ms "
-              << "(" << perfTotal.getFPS(iIte - 1) << " FPS" << gflops.str() << ")" << std::endl;
-
-    // free resources
+    std::cout << std::endl << "Simulation ended." << std::endl;
     delete visu;
     delete simu;
-
     return EXIT_SUCCESS;
 }
