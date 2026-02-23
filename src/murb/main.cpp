@@ -26,12 +26,15 @@
 #include "implem/SimulationNBodyMultiNode.hpp"
 
 #ifdef USE_CUDA
+#include <mpi.h>
+#include <cuda_runtime.h>
 #include "implem/SimulationNBodyHetero.hpp"
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
 #include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
 #include "implem/SimulationNBodyCUDALeapfrog.hpp"
+#include "implem/SimulationNBodyMultiNodeCUDA.hpp"
 #endif
 
 /* global variables */
@@ -260,6 +263,10 @@ SimulationNBodyInterface<T> *createImplem()
                                                           NIterations,
                                                           true);
     }
+    else if (ImplTag == "gpu+multinode") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        simu = new SimulationNBodyMultiNodeCUDA<T>(cudaAllocator, Softening);
+    }
 #endif
 
     else {
@@ -311,7 +318,18 @@ int main(int argc, char **argv)
     // read arguments from the command line
     // usage: ./nbody -n nBodies  -i nIterations [-v] [-w] ...
     argsReader(argc, argv);
+#ifdef USE_CUDA
+    int mpi_inited = 0;
+    MPI_Initialized(&mpi_inited);
+    if (!mpi_inited) MPI_Init(&argc, &argv);
 
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    int num_gpus;
+    cudaGetDeviceCount(&num_gpus);
+    cudaSetDevice(rank % num_gpus);
+#endif
     // create the n-body simulation
     SimulationNBodyInterface<float> *simu = createImplem<float>();
     NBodies = simu->getBodies()->getN();

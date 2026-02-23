@@ -34,7 +34,7 @@ cmake --build build-leonardo -j 8
 echo "--- Starting Execution ---"
 BIN="./build-leonardo/bin/murb"
 # -v: verbose, -gf: show GFlop/s
-srun $BIN -n 500000 -i 200 --im gpu+tile+full --nv
+srun $BIN -n 500000 -i 50 --im gpu+tile+full --nv
 # Esegue il profiler Nsight Compute per una singola iterazione
 # srun ncu --set full -o nbody_profile ./build-leonardo/bin/murb -n 200000 -i 2 --im gpu+tile+full --nv
 
