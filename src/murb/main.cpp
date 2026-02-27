@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include "ogl/SpheresVisu.hpp"
 #include "ogl/SpheresVisuNo.hpp"
@@ -24,6 +25,7 @@
 #include "implem/SimulationNBodySIMD.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp" 
 #include "implem/SimulationNBodyMultiNode.hpp"
+#include "implem/SimulationNBodyBinaryPlayer.hpp"
 
 #ifdef USE_CUDA
 #include <mpi.h>
@@ -97,6 +99,7 @@ void argsReader(int argc, char **argv)
                      "\t\t\t - \"cpu+omp\n"
                      "\t\t\t - \"hetero\"\n"
                      "\t\t\t - \"mpi\"\n"
+                     "\t\t\t - \"bin+player\"\n"
                      "\t\t\t - \"gpu+tile\"\n"
                      "\t\t\t - \"gpu+tile+full\n"
                      "\t\t\t - \"gpu+tile+full200k\n"
@@ -228,7 +231,10 @@ SimulationNBodyInterface<T> *createImplem()
         simu = new SimulationNBodyOpenMP<T>(allocator, Softening);
     }
      else if (ImplTag == "mpi") {
-         simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+        simu = new SimulationNBodyMultiNode<T>(allocator, Softening);
+    }
+    else if (ImplTag == "bin+player") {
+        simu = new SimulationNBodyBinaryPlayer<T>(allocator, Softening, "simulation_data.bin");
     }
 #ifdef USE_CUDA
     else if (ImplTag == "hetero") {
@@ -312,20 +318,27 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu)
 
     return visu;
 }
+template <typename T>
+void exportBinaryFrame(std::ofstream &outFile, SimulationNBodyInterface<T> *simu, unsigned long NBodies) {
+    const dataSoA_t<T>& data = simu->getBodies()->getDataSoA();
+
+    outFile.write(reinterpret_cast<const char*>(data.qx.data()), NBodies * sizeof(T));
+    outFile.write(reinterpret_cast<const char*>(data.qy.data()), NBodies * sizeof(T));
+    outFile.write(reinterpret_cast<const char*>(data.qz.data()), NBodies * sizeof(T));
+}
 
 int main(int argc, char **argv)
 {
     // read arguments from the command line
     // usage: ./nbody -n nBodies  -i nIterations [-v] [-w] ...
     argsReader(argc, argv);
+    int rank = 0;
 #ifdef USE_CUDA
     int mpi_inited = 0;
     MPI_Initialized(&mpi_inited);
     if (!mpi_inited) MPI_Init(&argc, &argv);
 
-    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
     int num_gpus;
     cudaGetDeviceCount(&num_gpus);
     cudaSetDevice(rank % num_gpus);
@@ -333,6 +346,18 @@ int main(int argc, char **argv)
     // create the n-body simulation
     SimulationNBodyInterface<float> *simu = createImplem<float>();
     NBodies = simu->getBodies()->getN();
+
+    std::ofstream dumpFile;
+    if (rank == 0) {
+        dumpFile.open("simulation_data.bin", std::ios::binary);
+        if (!dumpFile.is_open()) {
+            std::cerr << "Errore: impossibile creare simulation_data.bin" << std::endl;
+        } else {
+            // Header: Numero corpi e Iterazioni (facoltativo ma utile)
+            dumpFile.write(reinterpret_cast<char*>(&NBodies), sizeof(unsigned long));
+            dumpFile.write(reinterpret_cast<char*>(&NIterations), sizeof(unsigned long));
+        }
+    }
 
     // get MB used for this simulation
     float Mbytes = simu->getAllocatedBytes() / 1024.f / 1024.f;
@@ -388,6 +413,10 @@ int main(int argc, char **argv)
         perfIte.stop();
         perfTotal += perfIte;
 
+        if (rank == 0 && dumpFile.is_open() && iIte % 10 == 0) {
+            exportBinaryFrame(dumpFile, simu, NBodies);
+        }
+
         // compute the elapsed physic time
         physicTime += simu->getDt();
 
@@ -404,6 +433,12 @@ int main(int argc, char **argv)
                 std::cout << std::flush;
         }
     }
+
+    if (rank == 0 && dumpFile.is_open()) {
+        dumpFile.close();
+        std::cout << "\n[DUMP] Dati salvati in simulation_data.bin" << std::endl;
+    }
+
     if (Verbose)
         std::cout << std::endl;
     std::cout << "Simulation ended." << std::endl << std::endl;
