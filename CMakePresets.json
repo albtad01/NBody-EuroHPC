@@ -18,6 +18,7 @@
       "description": "Build per macOS (No CUDA, Visu ON)",
       "cacheVariables": {
         "ENABLE_VISU": "ON",
+        "ENABLE_MURB_OMP": "OFF",
         "CMAKE_CXX_STANDARD": "14"
       }
     },
