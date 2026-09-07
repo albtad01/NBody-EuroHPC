@@ -2,7 +2,9 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
-#include <map>
+#include <limits>
+#include <set>
+#include <stdexcept>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -16,27 +18,15 @@
 #endif
 
 #include "core/Bodies.hpp"
-#include "utils/ArgumentsReader.hpp"
 #include "utils/Perf.hpp"
 
 #include "implem/SimulationNBodyNaive.hpp"
-#include "implem/SimulationNBodyNop.hpp"
-#include "implem/SimulationNBodyOptim.hpp"
-#include "implem/SimulationNBodySIMD.hpp"
-#include "implem/SimulationNBodyOpenMP.hpp" 
-#include "implem/SimulationNBodyMultiNode.hpp"
-#include "implem/SimulationNBodyBinaryPlayer.hpp"
+#include "implem/SimulationNBodyOpenMP.hpp"
 
 #ifdef USE_CUDA
 #include <mpi.h>
 #include <cuda_runtime.h>
-#include "implem/SimulationNBodyHetero.hpp"
-#include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
-#include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
-#include "implem/SimulationNBodyCUDAPropertyTracking.hpp"
-#include "implem/SimulationNBodyCUDALeapfrog.hpp"
-#include "implem/SimulationNBodyMultiNodeCUDA.hpp"
 #endif
 
 /* global variables */
@@ -56,28 +46,75 @@ unsigned int LocalWGSize = 32;       /*!< OpenCL local workgroup size. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
 
+void printUsage() {
+    std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
+              << "Phase 1 backends: cpu+naive, cpu+omp, gpu+tile+full (CUDA build only).\n"
+              << "Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help.\n"
+              << "Recording, bin+player and other backends are deferred.\n";
+}
+
+unsigned long positiveCount(const std::string& value, const std::string& option) {
+    if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos)
+        throw std::invalid_argument(option + " requires a positive integer");
+    const auto count = std::stoull(value);
+    // CUDA launch calculations and existing implementations use signed int indices.
+    if (count == 0 || count > static_cast<unsigned long>(std::numeric_limits<int>::max() - 1024))
+        throw std::invalid_argument(option + " is outside the supported positive integer range");
+    return static_cast<unsigned long>(count);
+}
+
 void argsReader(int argc, char **argv) {
-    std::map<std::string, std::string> reqArgs, faculArgs, docArgs;
-    Arguments_reader argsReader(argc, argv);
-    reqArgs["n"] = "nBodies";
-    reqArgs["i"] = "nIterations";
-    faculArgs["-im"] = "ImplTag";
-    faculArgs["-dt"] = "timeStep";
-    faculArgs["-nv"] = "";
-    faculArgs["-v"] = "";
-    faculArgs["-gf"] = "";
-    faculArgs["s"] = "scheme";
-
-    if (argsReader.parse_arguments(reqArgs, faculArgs)) {
-        NBodies = stoi(argsReader.get_argument("n"));
-        NIterations = stoi(argsReader.get_argument("i"));
-    } else { exit(-1); }
-
-    if (argsReader.exist_argument("-v")) Verbose = true;
-    if (argsReader.exist_argument("-im")) ImplTag = argsReader.get_argument("-im");
-    if (argsReader.exist_argument("-nv")) VisuEnable = false;
-    if (argsReader.exist_argument("-gf")) ShowGFlops = true;
-    if (argsReader.exist_argument("s")) BodiesScheme = argsReader.get_argument("s");
+    std::set<std::string> seen;
+    for (int i = 1; i < argc; ++i) {
+        const std::string option = argv[i];
+        if (option == "--help" || option == "-h") {
+            if (argc != 2) throw std::invalid_argument("use --help on its own");
+            printUsage();
+            std::exit(EXIT_SUCCESS);
+        }
+        if (!seen.insert(option).second)
+            throw std::invalid_argument("duplicate option: " + option);
+        auto value = [&]() -> std::string {
+            if (++i >= argc) throw std::invalid_argument("missing value for " + option);
+            return argv[i];
+        };
+        if (option == "-n") NBodies = positiveCount(value(), option);
+        else if (option == "-i") NIterations = positiveCount(value(), option);
+        else if (option == "--im") ImplTag = value();
+        else if (option == "--dt") {
+            const std::string input = value();
+            std::size_t consumed = 0;
+            Dt = std::stof(input, &consumed);
+            if (consumed != input.size() || !std::isfinite(Dt) || Dt <= 0)
+                throw std::invalid_argument("--dt requires a finite positive number");
+        }
+        else if (option == "--nv") VisuEnable = false;
+        else if (option == "--visu") VisuEnable = true;
+        else if (option == "--gf") ShowGFlops = true;
+        else if (option == "-v") Verbose = true;
+        else if (option == "--scheme") BodiesScheme = value();
+        else throw std::invalid_argument("unknown option: " + option + " (see --help)");
+    }
+    if (!seen.count("-n") || !seen.count("-i"))
+        throw std::invalid_argument("both -n and -i are required (see --help)");
+    if (seen.count("--nv") && seen.count("--visu"))
+        throw std::invalid_argument("--nv and --visu are mutually exclusive");
+#ifndef VISU
+    if (seen.count("--visu"))
+        throw std::invalid_argument("--visu requires a build with OpenGL visualization enabled");
+#endif
+    if (BodiesScheme != "galaxy" && BodiesScheme != "random")
+        throw std::invalid_argument("--scheme must be galaxy or random in Phase 1");
+    if (ImplTag != "cpu+naive" && ImplTag != "cpu+omp" && ImplTag != "gpu+tile+full")
+        throw std::invalid_argument("unsupported Phase 1 backend: " + ImplTag);
+#ifndef USE_CUDA
+    if (ImplTag == "gpu+tile+full")
+        throw std::invalid_argument("gpu+tile+full requires a CUDA build");
+#endif
+#ifndef _OPENMP
+    if (ImplTag == "cpu+omp")
+        throw std::invalid_argument("cpu+omp requires an OpenMP build");
+#endif
 }
 
 std::string strDate(float timestamp) {
@@ -97,15 +134,13 @@ SimulationNBodyInterface<T> *createImplem() {
     BodiesAllocator<T> allocator(NBodies, BodiesScheme);
     if (ImplTag == "cpu+naive") return new SimulationNBodyNaive<T>(allocator, Softening);
     if (ImplTag == "cpu+omp")   return new SimulationNBodyOpenMP<T>(allocator, Softening);
-    if (ImplTag == "mpi")       return new SimulationNBodyMultiNode<T>(allocator, Softening);
-    if (ImplTag == "bin+player") return new SimulationNBodyBinaryPlayer<T>(allocator, Softening, "simulation_data.bin");
 #ifdef USE_CUDA
-    if (ImplTag == "gpu+multinode") {
+    if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
-        return new SimulationNBodyMultiNodeCUDA<T>(cudaAllocator, Softening);
+        return new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening, false);
     }
 #endif
-    return nullptr;
+    throw std::invalid_argument("unsupported or unavailable Phase 1 backend: " + ImplTag);
 }
 
 template <typename T>
@@ -133,7 +168,7 @@ void exportBinaryFrame(std::ofstream &outFile, SimulationNBodyInterface<T> *simu
     outFile.write(reinterpret_cast<const char*>(data.qz.data()), NBodies * sizeof(T));
 }
 
-int main(int argc, char **argv) {
+int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
     int rank = 0;
 #ifdef USE_CUDA
@@ -185,4 +220,12 @@ int main(int argc, char **argv) {
     delete visu;
     delete simu;
     return EXIT_SUCCESS;
+}
+int main(int argc, char **argv) {
+    try {
+        return runSimulation(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "murb: " << error.what() << '\n';
+        return EXIT_FAILURE;
+    }
 }
