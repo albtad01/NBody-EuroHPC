@@ -110,6 +110,9 @@ SimulationNBodyInterface<T> *createImplem() {
 
 template <typename T>
 SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu) {
+#ifndef VISU
+    return new SpheresVisuNo<T>();
+#else
     if (!VisuEnable) return new SpheresVisuNo<T>();
     const T *px = simu->getBodies()->getDataSoA().qx.data();
     const T *py = simu->getBodies()->getDataSoA().qy.data();
@@ -119,6 +122,7 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu) {
     const T *vz = simu->getBodies()->getDataSoA().vz.data();
     const T *r  = simu->getBodies()->getDataSoA().r.data();
     return new OGLSpheresVisuGS<T>("MUrB n-body", WinWidth, WinHeight, px, py, pz, vx, vy, vz, r, NBodies, VisuColor);
+#endif
 }
 
 template <typename T>
