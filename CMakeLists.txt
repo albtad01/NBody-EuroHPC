@@ -1,5 +1,7 @@
 # CMake entry point
 cmake_minimum_required (VERSION 3.21)
+# Invalidate a previously successful build even if this configure later fails.
+file(REMOVE "${CMAKE_BINARY_DIR}/murb-build.ready")
 project (murb CXX)
 
 # --- GLOBAL STANDARDS (Required for <concepts> and performance) ---
@@ -185,3 +187,25 @@ if (ENABLE_MURB_OCL AND ENABLE_MURB)
         targets_link_libraries("${murb_targets_list}" PUBLIC OpenCL::OpenCL)
     endif ()
 endif ()
+# Record the source identity actually compiled, and certify only a completed build.
+if (ENABLE_MURB)
+    add_custom_target(murb-build-info
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/generated
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBuildInfo.cmake
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/generated/BuildInfo.hpp
+        VERBATIM)
+    add_dependencies(murb-bin murb-build-info)
+    target_include_directories(murb-bin PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    set(ready_targets murb-bin)
+    if (ENABLE_TEST)
+        add_dependencies(test-bin murb-build-info)
+        target_include_directories(test-bin PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+        list(APPEND ready_targets test-bin)
+    endif()
+    add_custom_target(murb-build-ready ALL
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/murb-build.ready
+        DEPENDS ${ready_targets}
+        VERBATIM)
+endif()

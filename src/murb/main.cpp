@@ -17,6 +17,7 @@
 
 #include "core/Bodies.hpp"
 #include "utils/Perf.hpp"
+#include "BuildInfo.hpp"
 
 #include "implem/SimulationNBodyNaive.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp"
@@ -40,10 +41,30 @@ unsigned int WinHeight = 768;        /*!< Window height for visualization. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
 
+void printVersion() {
+    std::cout << "murb revision=" << MURB_REVISION << " dirty=" << MURB_BUILD_DIRTY
+#ifdef USE_CUDA
+              << " cuda=1"
+#else
+              << " cuda=0"
+#endif
+#ifdef _OPENMP
+              << " openmp=1"
+#else
+              << " openmp=0"
+#endif
+#ifdef VISU
+              << " visu=1"
+#else
+              << " visu=0"
+#endif
+              << '\n';
+}
+
 void printUsage() {
     std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
               << "Phase 1 backends: cpu+naive, cpu+omp, gpu+tile+full (CUDA build only).\n"
-              << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help.\n"
+              << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help, --version.\n"
               << "Recording, bin+player and other backends are deferred.\n";
 }
 
@@ -61,6 +82,11 @@ void argsReader(int argc, char **argv) {
     std::set<std::string> seen;
     for (int i = 1; i < argc; ++i) {
         const std::string option = argv[i];
+        if (option == "--version") {
+            if (argc != 2) throw std::invalid_argument("use --version on its own");
+            printVersion();
+            std::exit(EXIT_SUCCESS);
+        }
         if (option == "--help" || option == "-h") {
             if (argc != 2) throw std::invalid_argument("use --help on its own");
             printUsage();
@@ -175,6 +201,7 @@ void initializeCudaDevice() {
 
 int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
+    printVersion();
 #ifdef USE_CUDA
     if (ImplTag == "gpu+tile+full") initializeCudaDevice();
 #endif
