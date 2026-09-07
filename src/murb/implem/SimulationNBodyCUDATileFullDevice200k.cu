@@ -7,6 +7,7 @@
 #include <iostream>
 #include <iomanip>
 #include <limits>
+#include <stdexcept>
 #include <string>
 
 #include <cuda_runtime.h>
@@ -50,35 +51,35 @@ SimulationNBodyCUDATileFullDevice200k<T>::SimulationNBodyCUDATileFullDevice200k(
     : SimulationNBodyInterface<T>(allocator, soft), softSquared{soft*soft}, 
       transfer_each_iteration{transfer_each_iteration}
 {
-    this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
+    const auto bodyCount = this->getBodies()->getN();
+    if (bodyCount == 0 || bodyCount > static_cast<unsigned long>(std::numeric_limits<int>::max()))
+        throw std::invalid_argument("gpu+tile+full200k body count exceeds supported launch dimensions");
+    this->flopsPerIte = 20.f * (T)bodyCount * (T)bodyCount;
 
-    int n = (int)this->getBodies()->getN();
+    this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
+    if (!this->cudaBodiesPtr)
+        throw std::invalid_argument("gpu+tile+full200k requires CUDABodiesAllocator");
 
+    const int n = static_cast<int>(bodyCount);
     this->_num_threads = 1024;
 
-    this->_num_blocks = (this->getBodies()->getN() + _num_threads - 1) / _num_threads;  
-    if ( _num_blocks == 1 ) {
-        _num_threads = this->getBodies()->getN();
-    }
+    this->_num_blocks = (n + _num_threads - 1) / _num_threads;
+    if (_num_blocks == 1) _num_threads = n;
 
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.x, this->getBodies()->getN()*sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.y, this->getBodies()->getN()*sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.z, this->getBodies()->getN()*sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devGM, this->getBodies()->getN()*sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.x, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.y, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devAccelerations.z, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&this->devGM, bodyCount * sizeof(T)));
 
     // std::cout << "Number of threads: " << _num_threads << std::endl;
     // std::cout << "Number of blocks: " << _num_blocks << std::endl;
     // std::cout << "Element per thread: " << _elem_per_thread << std::endl;
     // std::cout << "Total desired bodies: " << total_threads * this->_elem_per_thread << std::endl;
 
-    this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
-
-    if ( this->cudaBodiesPtr == nullptr ) {
-        std::cout << "Error in converting to CUDABodies!!!" << std::endl;
-    }
-
-    devInitializeDevGM<T><<<this->_num_blocks,this->_num_threads>>>(this->cudaBodiesPtr->getDevDataSoA(), 
-        this->bodies->getN(),this->G,this->devGM);
+    devInitializeDevGM<T><<<this->_num_blocks, this->_num_threads>>>(
+        this->cudaBodiesPtr->getDevDataSoA(), n, this->G, this->devGM);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 template <typename T>
@@ -205,6 +206,7 @@ SimulationNBodyCUDATileFullDevice200k<T>::~SimulationNBodyCUDATileFullDevice200k
     CUDA_CHECK(cudaFree(devAccelerations.x));
     CUDA_CHECK(cudaFree(devAccelerations.y));
     CUDA_CHECK(cudaFree(devAccelerations.z));
+    CUDA_CHECK(cudaFree(devGM));
 }
 
 template class SimulationNBodyCUDATileFullDevice200k<float>;

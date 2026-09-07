@@ -6,10 +6,19 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <chrono>
 
 #include "SimulationNBodyCUDATile.hpp"
+
+namespace {
+void checkTileCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string("gpu+tile ") + operation + ": " + cudaGetErrorString(result));
+}
+}
+#define CUDA_TILE_CHECK(call) checkTileCuda((call), #call)
 
 template <
     class result_t   = std::chrono::nanoseconds,
@@ -37,8 +46,12 @@ SimulationNBodyCUDATile<T>::SimulationNBodyCUDATile(const BodiesAllocatorInterfa
     this->flopsPerIte = 20.f * (T)this->getBodies()->getN() * (T)this->getBodies()->getN();
     this->accelerations.resize(this->getBodies()->getN());
 
+    const auto bodyCount = this->getBodies()->getN();
+    if (bodyCount == 0 || bodyCount > static_cast<unsigned long>(std::numeric_limits<int>::max()))
+        throw std::invalid_argument("gpu+tile body count exceeds supported launch dimensions");
+
     const int NUM_SM = 128;
-    int n = (int)this->getBodies()->getN();
+    const int n = static_cast<int>(bodyCount);
     if ( n <= 128 * 256 ) {
         this->_num_threads = 256;
     } else if ( n <= 128 * 512 ) {
@@ -58,13 +71,13 @@ SimulationNBodyCUDATile<T>::SimulationNBodyCUDATile(const BodiesAllocatorInterfa
 
 
     const dataSoA_t<T> &d = this->getBodies()->getDataSoA();
-    cudaMalloc(&this->devM,  this->getBodies()->getN() * sizeof(T));
-    cudaMemcpy(this->devM, d.m.data(), this->getBodies()->getN() * sizeof(T), cudaMemcpyHostToDevice);
+    CUDA_TILE_CHECK(cudaMalloc(&this->devM, bodyCount * sizeof(T)));
+    CUDA_TILE_CHECK(cudaMemcpy(this->devM, d.m.data(), bodyCount * sizeof(T), cudaMemcpyHostToDevice));
 
-    cudaMalloc(&this->devQx, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devQy, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devQz, this->getBodies()->getN() * sizeof(T));
-    cudaMalloc(&this->devAccelerations, this->getBodies()->getN() * sizeof(accAoS_t<T>));
+    CUDA_TILE_CHECK(cudaMalloc(&this->devQx, bodyCount * sizeof(T)));
+    CUDA_TILE_CHECK(cudaMalloc(&this->devQy, bodyCount * sizeof(T)));
+    CUDA_TILE_CHECK(cudaMalloc(&this->devQz, bodyCount * sizeof(T)));
+    CUDA_TILE_CHECK(cudaMalloc(&this->devAccelerations, bodyCount * sizeof(accAoS_t<T>)));
 
 }
 
@@ -193,9 +206,9 @@ void SimulationNBodyCUDATile<T>::computeBodiesAcceleration()
     const dataSoA_t<T> &d = this->getBodies()->getDataSoA();
 
     auto start0 = std::chrono::steady_clock::now();
-    cudaMemcpy(this->devQx, d.qx.data(), n * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQy, d.qy.data(), n * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devQz, d.qz.data(), n * sizeof(T), cudaMemcpyHostToDevice);
+    CUDA_TILE_CHECK(cudaMemcpy(this->devQx, d.qx.data(), n * sizeof(T), cudaMemcpyHostToDevice));
+    CUDA_TILE_CHECK(cudaMemcpy(this->devQy, d.qy.data(), n * sizeof(T), cudaMemcpyHostToDevice));
+    CUDA_TILE_CHECK(cudaMemcpy(this->devQz, d.qz.data(), n * sizeof(T), cudaMemcpyHostToDevice));
     // std::cout << "MEMCPY pos: Elapsed(ns)=" << since(start0).count() << std::endl;
 
     auto start1 = std::chrono::steady_clock::now();
@@ -204,12 +217,13 @@ void SimulationNBodyCUDATile<T>::computeBodiesAcceleration()
         this->devM, this->devQx, this->devQy, this->devQz,
         n, this->G, this->softSquared, this->_elem_per_thread
     );
-    cudaDeviceSynchronize();
+    CUDA_TILE_CHECK(cudaGetLastError());
+    CUDA_TILE_CHECK(cudaDeviceSynchronize());
     // std::cout << "KERNEL: Elapsed(ns)=" << since(start1).count() << std::endl;
     
     auto start2 = std::chrono::steady_clock::now();
-    cudaMemcpy(this->accelerations.data(), this->devAccelerations,
-               n * sizeof(accAoS_t<T>), cudaMemcpyDeviceToHost);
+    CUDA_TILE_CHECK(cudaMemcpy(this->accelerations.data(), this->devAccelerations,
+               n * sizeof(accAoS_t<T>), cudaMemcpyDeviceToHost));
     // std::cout << "MEMCPY acc: Elapsed(ns)=" << since(start2).count() << std::endl;
 }
 
