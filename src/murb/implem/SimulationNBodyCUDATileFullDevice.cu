@@ -5,14 +5,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <type_traits>
+#include <limits>
+#include <stdexcept>
 #include "SimulationNBodyCUDATileFullDevice.hpp"
 
 #define CUDA_CHECK(err) do { cuda_check((err), __FILE__, __LINE__); } while(false)
-inline void cuda_check(cudaError_t error_code, const char *file, int line) {
+static inline void cuda_check(cudaError_t error_code, const char *file, int line) {
     if (error_code != cudaSuccess) {
         fprintf(stderr, "CUDA Error %d: %s. In file '%s' on line %d\n",
                 (int)error_code, cudaGetErrorString(error_code), file, line);
-        std::exit((int)error_code);
+        std::exit(EXIT_FAILURE);
     }
 }
 
@@ -162,7 +164,13 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
   softSquared{soft*soft},
   transfer_each_iteration{transfer_each_iteration}
 {
-    const int n = (int)this->getBodies()->getN();
+    const auto bodyCount = this->getBodies()->getN();
+    if (bodyCount == 0 || bodyCount > static_cast<unsigned long>(std::numeric_limits<int>::max() - 1024))
+        throw std::invalid_argument("gpu+tile+full body count exceeds supported launch dimensions");
+    this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
+    if (!this->cudaBodiesPtr)
+        throw std::invalid_argument("gpu+tile+full requires CUDABodiesAllocator");
+    const int n = static_cast<int>(bodyCount);
     this->flopsPerIte = 20.f * (T)n * (T)n;
 
     // Detect GPU and choose EPT (A100 tends to like EPT=2 for occupancy)
@@ -187,8 +195,6 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.y, n * sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devAccelerations.z, n * sizeof(T)));
     CUDA_CHECK(cudaMalloc(&this->devGM, n * sizeof(T)));
-
-    this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
 
     // Init GM
     const int init_blocks = (n + 255) / 256;

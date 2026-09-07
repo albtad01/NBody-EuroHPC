@@ -1,4 +1,16 @@
 #include "core/CUDABodies.hpp"
+#include <cstdio>
+#include <cstdlib>
+
+namespace {
+void checkBodyCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess) {
+        std::fprintf(stderr, "CUDA bodies: %s: %s\n", operation, cudaGetErrorString(result));
+        std::exit(EXIT_FAILURE);
+    }
+}
+}
+#define BODY_CUDA_CHECK(call) checkBodyCuda((call), #call)
 
 template <typename T>
 CUDABodies<T>::CUDABodies(const unsigned long n, const std::string &scheme, const unsigned long randInit) 
@@ -10,42 +22,42 @@ CUDABodies<T>::CUDABodies(const unsigned long n, const std::string &scheme, cons
 
 template <typename T>
 void CUDABodies<T>::allocateBuffersOnDevice() {
-    cudaMalloc(&this->devDataSoA.m, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devDataSoA.r, (this->n + this->padding)*sizeof(T));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.m, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.r, (this->n + this->padding)*sizeof(T)));
 
-    cudaMalloc(&this->devDataSoA.qx, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devDataSoA.qy, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devDataSoA.qz, (this->n + this->padding)*sizeof(T));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.qx, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.qy, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.qz, (this->n + this->padding)*sizeof(T)));
 
-    cudaMalloc(&this->devDataSoA.vx, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devDataSoA.vy, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devDataSoA.vz, (this->n + this->padding)*sizeof(T));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.vx, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.vy, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devDataSoA.vz, (this->n + this->padding)*sizeof(T)));
 
     // Internal buffers for Leapfrog
-    cudaMalloc(&this->devIntermVelocities.x, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devIntermVelocities.y, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devIntermVelocities.z, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devNextPositions.x, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devNextPositions.y, (this->n + this->padding)*sizeof(T));
-    cudaMalloc(&this->devNextPositions.z, (this->n + this->padding)*sizeof(T));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devIntermVelocities.x, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devIntermVelocities.y, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devIntermVelocities.z, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devNextPositions.x, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devNextPositions.y, (this->n + this->padding)*sizeof(T)));
+    BODY_CUDA_CHECK(cudaMalloc(&this->devNextPositions.z, (this->n + this->padding)*sizeof(T)));
 }
 
 template <typename T>
 void CUDABodies<T>::memcpyBuffersOnDevice() {
-    cudaMemcpy(this->devDataSoA.m, this->dataSoA.m.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devDataSoA.r, this->dataSoA.r.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.m, this->dataSoA.m.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.r, this->dataSoA.r.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
 
-    cudaMemcpy(this->devDataSoA.qx, this->dataSoA.qx.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devDataSoA.qy, this->dataSoA.qy.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devDataSoA.qz, this->dataSoA.qz.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.qx, this->dataSoA.qx.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.qy, this->dataSoA.qy.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.qz, this->dataSoA.qz.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
 
-    cudaMemcpy(this->devDataSoA.vx, this->dataSoA.vx.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devDataSoA.vy, this->dataSoA.vy.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(this->devDataSoA.vz, this->dataSoA.vz.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice);
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.vx, this->dataSoA.vx.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.vy, this->dataSoA.vy.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devDataSoA.vz, this->dataSoA.vz.data(), (this->n + this->padding)*sizeof(T), cudaMemcpyHostToDevice));
 
-    cudaMemcpy(this->devNextPositions.x, this->devDataSoA.qx, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice);
-    cudaMemcpy(this->devNextPositions.y, this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice);
-    cudaMemcpy(this->devNextPositions.z, this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice);
+    BODY_CUDA_CHECK(cudaMemcpy(this->devNextPositions.x, this->devDataSoA.qx, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devNextPositions.y, this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice));
+    BODY_CUDA_CHECK(cudaMemcpy(this->devNextPositions.z, this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), cudaMemcpyDeviceToDevice));
 }
 // ======================================================================================
 // =============================== GETTERS and SETTERS ==================================
@@ -68,23 +80,23 @@ const dataSoA_t<T>& CUDABodies<T>::getDataSoA() const {
         // Mass and radius do not change
 
         // Positions
-        cudaMemcpy(Bodies<T>::dataSoA.qx.data(), this->devDataSoA.qx, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.qx.data(), this->devDataSoA.qx, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
 
-        cudaMemcpy(Bodies<T>::dataSoA.qy.data(), this->devDataSoA.qy, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.qy.data(), this->devDataSoA.qy, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
 
-        cudaMemcpy(Bodies<T>::dataSoA.qz.data(), this->devDataSoA.qz, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.qz.data(), this->devDataSoA.qz, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
 
         // Velocities
-        cudaMemcpy(Bodies<T>::dataSoA.vx.data(), this->devDataSoA.vx, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.vx.data(), this->devDataSoA.vx, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
 
-        cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.vy, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
-        cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.vz, (this->n + this->padding)*sizeof(T), 
-                cudaMemcpyDeviceToHost);
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.vy.data(), this->devDataSoA.vy, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
+        BODY_CUDA_CHECK(cudaMemcpy(Bodies<T>::dataSoA.vz.data(), this->devDataSoA.vz, (this->n + this->padding)*sizeof(T),
+                cudaMemcpyDeviceToHost));
 
         this->dataOnCPU = true;
     }
@@ -164,7 +176,7 @@ void CUDABodies<T>::updatePositionsAndVelocitiesOnDevice(const devAccSoA_t<T> &d
         devAccelerations, dt, this->devDataSoA, this->n
     );
 
-    cudaGetLastError();
+    BODY_CUDA_CHECK(cudaGetLastError());
 }
 
 

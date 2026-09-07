@@ -1,5 +1,5 @@
 # CMake entry point
-cmake_minimum_required (VERSION 3.10.3)
+cmake_minimum_required (VERSION 3.21)
 project (murb CXX)
 
 # --- GLOBAL STANDARDS (Required for <concepts> and performance) ---
@@ -32,6 +32,7 @@ if (ENABLE_MURB_CUDA)
 endif ()
 
 # Find visualization dependencies
+set(LINK_VISU 0)
 if (ENABLE_VISU)
     set (OpenGL_GL_PREFERENCE LEGACY)
     find_package (OpenGL)
@@ -107,9 +108,9 @@ macro (targets_link_libraries targets privacy lib)
     endforeach()
 endmacro()
 
-macro (targets_compile_options targets privacy opts)
+macro (targets_compile_options targets privacy)
     foreach(_target IN ITEMS ${targets})
-        target_compile_options(${_target} ${privacy} ${opts})
+        target_compile_options(${_target} ${privacy} ${ARGN})
     endforeach()
 endmacro()
 
@@ -124,19 +125,17 @@ else ()
 endif ()
 
 # --- CRITICAL OPTIMIZATIONS ---
-# Host (C++) Optimizations
-targets_compile_options("${murb_targets_list}" PRIVATE 
-    -O3 
-    -ffast-math
-)
+# Preserve the effective arithmetic flags of the audited baseline: host -O3,
+# CUDA --use_fast_math. The old helper silently discarded later arguments.
+targets_compile_options("${murb_targets_list}" PRIVATE -O3)
 
 # CUDA Optimizations
 if (ENABLE_MURB_CUDA AND ENABLE_MURB)
+    find_package(CUDAToolkit REQUIRED)
     targets_compile_definitions("${murb_targets_list}" PRIVATE USE_CUDA)
+    targets_link_libraries("${murb_targets_list}" PRIVATE CUDA::cudart)
     targets_compile_options("${murb_targets_list}" PRIVATE 
         $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
-        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
-        $<$<COMPILE_LANGUAGE:CUDA>:-O3>
     )
 endif ()
 
@@ -169,12 +168,12 @@ endif()
 
 # MPI setup
 find_package(MPI REQUIRED COMPONENTS CXX)
-if (MPI_CXX_FOUND)
-    target_link_libraries(murb-bin PUBLIC MPI::MPI_CXX)
-    target_include_directories(murb-bin PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+if (ENABLE_MURB)
+    # MPI implementations remain compiled, though unsupported by the Phase 1 CLI.
+    target_link_libraries(murb-implem-lib PUBLIC MPI::MPI_CXX)
+    target_link_libraries(murb-bin PRIVATE MPI::MPI_CXX)
     if (ENABLE_TEST)
-        target_link_libraries(test-bin PUBLIC MPI::MPI_CXX)
-        target_include_directories(test-bin PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+        target_link_libraries(test-bin PRIVATE MPI::MPI_CXX)
     endif()
 endif()
 
