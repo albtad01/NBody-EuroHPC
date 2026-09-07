@@ -1,99 +1,56 @@
-# MUrB – N-Body Simulation on CPU & GPU
+# MUrB: N-Body Simulation on CPU and GPU
 
-![MUrB demo](assets/demo.gif)
+MUrB is an all-pairs gravitational N-body simulation derived from the Sorbonne
+University PACC project and extended for EuroHPC demonstrations. This branch is
+a small stabilization baseline for CPU execution and one NVIDIA A100 on the
+Leonardo supercomputer.
 
-**N-Body gravitational simulation with progressive optimisation from naive CPU to multi-GPU.**
-Started as a project for *Parallel Programming (PACC – UM5IN160)* at Sorbonne University;
-extended and scaled to the **Leonardo supercomputer** (CINECA) for the **EuroHPC Summit 2026**.
+## Phase 1 support
 
-Our work builds on the open-source MUrB framework (Sorbonne / LIP6) and extends it substantially
-with additional kernels, CUDA implementations, multi-node MPI+CUDA support, heterogeneous
-CPU+GPU execution, a Barnes-Hut approximation, simulation history tracking, and a binary replay mode.
+The command-line demo supports these backends:
 
----
+- `cpu+naive`: single-threaded CPU reference implementation.
+- `cpu+omp`: OpenMP CPU implementation.
+- `gpu+tile+full`: tiled CUDA implementation with all body state resident on
+  one device.
 
-## Table of Contents
+Other implementation sources remain in the repository but are deliberately
+unavailable through the Phase 1 command-line interface. Multi-GPU execution,
+trajectory recording, and `bin+player` replay are deferred. The stabilization
+does not delete or substantially change those implementations.
 
-1. [Architecture & Implementations](#1-architecture--implementations)
-2. [Repository Layout](#2-repository-layout)
-3. [Build](#3-build)
-4. [Run](#4-run)
-5. [Simulation Replay (Binary Player)](#5-simulation-replay-binary-player)
-6. [Validation Tests (Catch2)](#6-validation-tests-catch2)
-7. [Scripts](#7-scripts)
-8. [License & Attribution](#8-license--attribution-mit)
+Leonardo benchmark jobs are headless. A local build may still enable the
+existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
 
----
+## Requirements
 
-## 1) Architecture & Implementations
+- CMake 3.21 or newer.
+- A C++20 compiler.
+- OpenMPI with C++ support.
+- OpenMP for `cpu+omp`.
+- CUDA 12 and compute capability 8.0 for the Leonardo A100 build.
+- OpenGL, GLEW, GLM, and GLFW only for an optional local visualization build.
 
-| Tag | Backend | Description |
-|-----|---------|-------------|
-| `cpu+naive` | CPU | Baseline O(n²) direct summation |
-| `cpu+optim` | CPU | Loop optimisations, SoA layout, Newton's 3rd law |
-| `cpu+simd` | CPU | Explicit SIMD via MIPP intrinsics |
-| `cpu+omp` | CPU | OpenMP parallel-for with SIMD |
-| `mpi` | CPU | MPI-distributed (single-node prototype) |
-| `cpu+barneshut` | CPU | Barnes-Hut O(n log n) tree approximation |
-| `gpu+tile` | CUDA | Tiled shared-memory kernel |
-| `gpu+tile+full` | CUDA | Fully device-resident tiled kernel |
-| `gpu+tile+full200k` | CUDA | Variant tuned for n ≥ 200 k bodies |
-| `gpu+tracking` | CUDA | GPU kernel with simulation history tracking |
-| `gpu+leapfrog` | CUDA | Leapfrog (symplectic) integrator on GPU |
-| `gpu+multinode` | CUDA+MPI | Multi-GPU with CUDA-aware MPI (NVLink) |
-| `hetero` | CPU+CUDA | Heterogeneous: OpenMP threads + GPU, configurable split |
-| `bin+player` | — | Replay a previously saved `simulation_data.bin` |
+MIPP and Catch2 are included under `lib/`.
 
----
+## Build on Leonardo
 
-## 2) Repository Layout
+Build once before submitting a job. The job scripts use the existing binary;
+they never configure, rebuild, or remove a build directory.
 
-```
-.
-├── CMakeLists.txt            # Main build definition
-├── CMakePresets.json          # mac / leonardo / generic presets
-├── lib/
-│   ├── Catch2/               # Unit-test framework (header-only)
-│   └── MIPP/                 # Portable SIMD wrapper
-├── src/
-│   ├── common/
-│   │   ├── core/             # Bodies, allocators, simulation interface, history tracking
-│   │   ├── ogl/              # OpenGL real-time visualisation
-│   │   └── utils/            # CLI parser, perf counters
-│   ├── murb/
-│   │   ├── main.cpp          # Entry point
-│   │   └── implem/           # All simulation back-ends (see table above)
-│   └── test/                 # Catch2 tests (CPU + CUDA)
-├── scripts/                  # SLURM job scripts, profiling, plotting
-└── assets/                   # demo.gif
-```
-
----
-
-## 3) Build
-
-All builds are **out-of-source** and driven by CMake presets.
-
-### Prerequisites
-
-| Dependency | Required | Notes |
-|------------|----------|-------|
-| CMake ≥ 3.10 | Yes | |
-| C++20 compiler | Yes | GCC 12+, AppleClang 17+ |
-| MPI | Yes | OpenMPI 4.x / 5.x |
-| CUDA Toolkit ≥ 12 | GPU builds | `sm_80` for A100 |
-| OpenGL + GLEW + GLM + GLFW | Visualisation | macOS / desktop only |
-| MIPP | Bundled | SIMD abstraction (included in `lib/`) |
-| Catch2 v2 | Bundled | Testing (included in `lib/`) |
-
-### macOS (visualisation, no CUDA)
+For a headless CPU build:
 
 ```bash
-cmake --preset mac
-cmake --build build-mac -j $(sysctl -n hw.ncpu)
+module purge
+module load profile/base
+module load gcc/12.2.0
+module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
+module load cmake/3.27.9
+cmake --preset generic
+cmake --build build-generic -j 32
 ```
 
-### Leonardo – GPU (CUDA + OpenMP + MPI)
+For a headless A100 build:
 
 ```bash
 module purge
@@ -101,179 +58,134 @@ module load profile/base
 module load gcc/12.2.0
 module load cuda/12.2
 module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
-module load cmake
-
+module load cmake/3.27.9
 cmake --preset leonardo
 cmake --build build-leonardo -j 32
 ```
 
-### Leonardo – CPU only (OpenMP + MPI, no CUDA)
+The `generic` preset enables OpenMP and disables CUDA and visualization. The
+`leonardo` preset enables OpenMP and CUDA, targets `sm_80`, and disables
+visualization.
+
+A successful build creates `murb-build.ready`. The executable reports its
+compiled source identity:
 
 ```bash
-module purge
-module load profile/base
-module load openmpi/4.1.6--gcc--12.2.0
-module load cmake
-
-cmake --preset generic
-cmake --build build-generic -j 112
+./build-generic/bin/murb --version
 ```
 
-### Preset summary
+The SLURM scripts require the executable revision to match the checked-out
+revision and reject binaries built from dirty tracked sources. Rebuild after
+each source commit before submitting.
 
-| Preset | CUDA | OpenMP | Visualisation | Target |
-|--------|------|--------|---------------|--------|
-| `mac` | OFF | OFF | ON | macOS desktop |
-| `leonardo` | ON (`sm_80`) | ON | OFF | Leonardo Booster (A100) |
-| `generic` | OFF | ON | OFF | Linux CPU cluster |
+## Command line
 
----
+The Phase 1 syntax is:
 
-## 4) Run
-
-Common flags: `--nv` disables visualisation, `--gf` prints GFlop/s, `-v` verbose output.
-
-```
-./murb -n <bodies> -i <iterations> --im <tag> [--nv] [--gf] [-v] [-dt <timestep>]
+```text
+murb -n BODIES -i ITERATIONS --im BACKEND [--nv] [--gf] [--dt SECONDS]
 ```
 
-### A) CPU – single thread
+Options used by the demo are:
+
+- `-n`: positive number of bodies.
+- `-i`: positive number of iterations.
+- `--im`: one of the three supported backend tags.
+- `--nv`: explicitly select headless operation.
+- `--gf`: report an estimated GFLOP/s value using 20 operations per
+  interaction.
+- `--dt`: finite, positive time step in seconds.
+
+`--scheme galaxy|random`, `-v`, `--help`, and `--version` are also accepted.
+Unknown, duplicate, missing, and invalid options cause a clear nonzero exit.
+
+The default mode is headless and does not record a trajectory. A normal run
+does not create or overwrite `simulation_data.bin`. `--visu` is accepted only
+by a build in which the OpenGL dependencies were found and visualization was
+compiled.
+
+## Run the Phase 1 jobs
+
+From the root of a clean checkout with matching prebuilt binaries, submit the
+CPU reference job with:
 
 ```bash
-srun ./build-generic/bin/murb -n 30000 -i 200 --nv --im cpu+naive --gf
-srun ./build-generic/bin/murb -n 30000 -i 200 --nv --im cpu+optim --gf
-srun ./build-generic/bin/murb -n 30000 -i 200 --nv --im cpu+simd  --gf
+sbatch --account=EUHPC_TDEMO_26_0 scripts/run_cpu.sh
 ```
 
-### B) CPU – OpenMP (112 cores, Leonardo DCGP)
+Submit the single-A100 job with:
 
 ```bash
-export OMP_NUM_THREADS=112
-export OMP_PLACES=cores
-export OMP_PROC_BIND=close
-
-srun ./build-generic/bin/murb -n 10000 -i 200 --nv --im cpu+omp --gf
+sbatch --account=EUHPC_TDEMO_26 scripts/run_gpu.sh
 ```
 
-<details>
-<summary>Full SLURM job → <code>scripts/run_cpu.sh</code></summary>
+The CPU script requests one node, one task, and one CPU. The GPU script
+requests one Booster node, one task, eight CPUs, and one GPU. SLURM constrains
+the task to one visible GPU; the program validates that a CUDA device exists
+and selects visible device zero before allocating device memory.
+
+The default workload is 10,000 bodies, 20 iterations, and a 3,600-second time
+step. Override it at submission time, for example:
 
 ```bash
-sbatch scripts/run_cpu.sh
+MURB_N=2048 MURB_ITERS=4 MURB_DT=3600 sbatch scripts/run_gpu.sh
 ```
 
-Partition: `dcgp_usr_prod` – 112 CPU cores, no GPU.
-</details>
+The executable prints the backend, problem size, compiled revision, CUDA
+device identity when applicable, elapsed compute time, loop wall time,
+interactions per second, and optional estimated GFLOP/s.
 
-### C) Single GPU (1 × A100)
+## Validation
+
+Run CPU correctness tests after building with tests enabled:
 
 ```bash
-srun ./build-leonardo/bin/murb -n 30000 -i 50 --nv --im gpu+tile+full --gf
+./build-generic/bin/murb-test "[correctness]"
 ```
 
-<details>
-<summary>Full SLURM job → <code>scripts/run_gpu.sh</code></summary>
+On one allocated A100, the same filter compares `gpu+tile+full` with the
+trusted `cpu+naive` implementation for random and galaxy inputs, including
+body counts that are not exact CUDA block multiples:
 
 ```bash
-sbatch scripts/run_gpu.sh
+srun --nodes=1 --ntasks=1 --cpus-per-task=8 --gpus-per-task=1 \
+  ./build-leonardo/bin/murb-test "[correctness]"
 ```
 
-Partition: `boost_usr_prod` – 1 node, 1 GPU, 8 CPU cores.
-</details>
+That GPU validation must run in a scheduled allocation, not on a login node.
 
-### D) Multi-GPU (4 × A100, CUDA-aware MPI)
+## Optional local visualization
 
-```bash
-srun ./build-leonardo/bin/murb -n 500000 -i 500 --im gpu+multinode -dt 1e11 --nv -v --gf
-```
+Visualization is outside the Leonardo benchmark path but remains available.
+Configure with `-DENABLE_VISU=ON` on a machine that provides OpenGL, GLEW, GLM,
+and GLFW. If those dependencies are absent, CMake produces a headless build and
+`--visu` reports that visualization was not compiled.
 
-<details>
-<summary>Full SLURM job → <code>scripts/run_gpu_multinode.sh</code></summary>
-
-```bash
-sbatch scripts/run_gpu_multinode.sh
-```
-
-Partition: `boost_usr_prod` – 1 node, 4 GPUs (NVLink), 4 MPI ranks.
-</details>
-
-### E) Heterogeneous CPU + GPU
+The existing `mac` preset requests visualization:
 
 ```bash
-export MURB_HETERO_GPU_FRACTION=0.75
-export OMP_NUM_THREADS=12
-
-srun ./build-leonardo/bin/murb -n 30000 -i 60 --nv --im hetero --gf
-```
-
-The environment variable `MURB_HETERO_GPU_FRACTION` controls the fraction of bodies
-offloaded to the GPU (default 0.75).
-
----
-
-## 5) Simulation Replay (Binary Player)
-
-Any GPU/CPU run that enables history tracking writes a `simulation_data.bin` file.
-You can replay it locally (e.g. on macOS with OpenGL) without re-running the simulation:
-
-```bash
-# Build with visualisation (mac preset)
 cmake --preset mac
-cmake --build build-mac -j $(sysctl -n hw.ncpu)
-
-# Create a symlink so the binary finds the shaders
-cd build-mac && ln -sf ../src src && cd bin
-
-# Copy simulation_data.bin from the cluster into the bin/ directory, then:
-./murb -n <same_n> -i <same_i> --im bin+player
+cmake --build build-mac
 ```
 
-This opens a real-time OpenGL window replaying the recorded trajectory.
+Trajectory recording and `bin+player` are reserved for Phase 1b. They are not
+selectable in this branch, and no file format compatibility is promised by the
+Phase 1 benchmark workflow.
 
----
+## Deferred implementations
 
-## 6) Validation Tests (Catch2)
+The following paths are not supported or validated by this stabilization:
 
-```bash
-# From any build directory
-./bin/murb-test
-```
+- MPI and `gpu+multinode`.
+- `gpu+tracking`, `gpu+leapfrog`, and `gpu+tile+full200k`.
+- Heterogeneous CPU/GPU execution.
+- Barnes-Hut, OpenCL, CADNA, and other experimental kernels.
+- Binary trajectory recording and `bin+player` replay.
 
-Tests cover CPU kernel correctness, CUDA body transfers, and simulation history integrity.
+Do not use `scripts/run_gpu_multinode.sh` for the Phase 1 demo.
 
----
+## License and attribution
 
-## 7) Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/run_cpu.sh` | SLURM job – CPU benchmarks (DCGP, 112 cores) |
-| `scripts/run_gpu.sh` | SLURM job – single-GPU run (Booster, 1 × A100) |
-| `scripts/run_gpu_multinode.sh` | SLURM job – multi-GPU run (Booster, 4 × A100) |
-| `scripts/run_tests.sh` | Run Catch2 test suite on cluster |
-| `scripts/nbody_profiling.sh` | Nsight Compute profiling wrapper |
-| `scripts/make_plots.py` | Generate performance plots from CSV |
-| `scripts/plot_history_metrics.py` | Plot simulation history metrics (energy, momentum) |
-| `scripts/measure_energy.py` | Energy consumption measurement |
-| `scripts/parse_energy_log.py` | Parse energy logs |
-
----
-
-## 8) License & Attribution (MIT)
-
-This repository contains code derived from the **MUrB framework** developed at
-**Sorbonne University, LIP6**, released under the **MIT License**.
-
-- The full license text is provided in the `LICENSE` file.
-- Copyright (c) 2023 Sorbonne University, LIP6.
-
-If you redistribute or reuse substantial portions of this repository, keep the `LICENSE` file
-and preserve the attribution above.
-
----
-
-**Disclaimer** — THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+This repository contains code derived from the MUrB framework developed at
+Sorbonne University, LIP6, and released under the MIT License. Keep the
+repository `LICENSE` file and its attribution when redistributing the code.
