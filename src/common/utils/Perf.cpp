@@ -1,15 +1,12 @@
 #include "Perf.hpp"
 
-#include <sys/time.h>
-
-#include <cassert>
-#include <iostream>
+#include <chrono>
 
 Perf::Perf() : tStart(0), tStop(0) {}
 
 Perf::Perf(const Perf &p) : tStart(p.tStart), tStop(p.tStop) {}
 
-Perf::Perf(float ms) : tStart(0), tStop(ms * 1000) {}
+Perf::Perf(double ms) : tStart(0), tStop(ms > 0 ? static_cast<std::uint64_t>(ms * 1e6) : 0) {}
 
 Perf::~Perf() {}
 
@@ -23,15 +20,15 @@ void Perf::reset()
     this->tStop = 0;
 }
 
-float Perf::getElapsedTime() { return (this->tStop - this->tStart) / 1000.f; }
+double Perf::getElapsedTime() { return (this->tStop - this->tStart) / 1e6; }
 
-float Perf::getGflops(float flops) { return (flops * (1000 / this->getElapsedTime())) / 1024.0 / 1024.0 / 1024.0; }
+double Perf::getGflops(double flops) { return getElapsedTime() > 0 ? flops / (getElapsedTime() * 1e6) : 0.0; }
 
-float Perf::getFPS(const size_t nFrames) { return (nFrames * 1000.f) / this->getElapsedTime(); }
+double Perf::getFPS(const size_t nFrames) { return getElapsedTime() > 0 ? nFrames * 1000.0 / getElapsedTime() : 0.0; }
 
-float Perf::getMemoryBandwidth(unsigned long memops, unsigned short nBytes)
+double Perf::getMemoryBandwidth(unsigned long memops, unsigned short nBytes)
 {
-    return (memops * nBytes * (1000 / this->getElapsedTime())) / 1024.0 / 1024.0 / 1024.0;
+    return getElapsedTime() > 0 ? (static_cast<double>(memops) * nBytes * (1000 / getElapsedTime())) / 1024.0 / 1024.0 / 1024.0 : 0.0;
 }
 
 Perf Perf::operator+(const Perf &p)
@@ -47,15 +44,8 @@ Perf Perf::operator+=(const Perf &p)
     return (*this);
 }
 
-unsigned long Perf::getTime()
+std::uint64_t Perf::getTime()
 {
-    struct timeval t;
-
-    int ret = gettimeofday(&t, NULL);
-    assert(ret == 0);
-
-    if (ret == 0)
-        return t.tv_sec * 1000000 + t.tv_usec;
-    else
-        return 0;
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
 }

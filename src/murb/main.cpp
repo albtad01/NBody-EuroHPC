@@ -1,14 +1,12 @@
-#include <cassert>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <set>
 #include <stdexcept>
-#include <sstream>
 #include <string>
-#include <vector>
 #include <fstream>
+#include <memory>
 
 #include "ogl/SpheresVisu.hpp"
 #include "ogl/SpheresVisuNo.hpp"
@@ -33,22 +31,19 @@ unsigned long NBodies;               /*!< Number of bodies. */
 unsigned long NIterations;           /*!< Number of iterations. */
 std::string ImplTag = "cpu+naive";   /*!< Implementation id. */
 bool Verbose = false;                /*!< Mode verbose. */
-bool GSEnable = true;                /*!< Enable geometry shader. */
-bool VisuEnable = true;              /*!< Enable visualization. */
+bool VisuEnable = false;              /*!< Enable visualization. */
 bool VisuColor = true;               /*!< Enable visualization with colors. */
 float Dt = 3600;                     /*!< Time step in seconds. */
-float MinDt = 200;                   /*!< Minimum time step. */
 float Softening = 2e+08;             /*!< Softening factor value. */
 unsigned int WinWidth = 1024;        /*!< Window width for visualization. */
 unsigned int WinHeight = 768;        /*!< Window height for visualization. */
-unsigned int LocalWGSize = 32;       /*!< OpenCL local workgroup size. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
 
 void printUsage() {
     std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
               << "Phase 1 backends: cpu+naive, cpu+omp, gpu+tile+full (CUDA build only).\n"
-              << "Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help.\n"
+              << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help.\n"
               << "Recording, bin+player and other backends are deferred.\n";
 }
 
@@ -116,18 +111,6 @@ void argsReader(int argc, char **argv) {
 #endif
 }
 
-std::string strDate(float timestamp) {
-    unsigned int days = timestamp / (24 * 60 * 60);
-    float rest = timestamp - (days * 24 * 60 * 60);
-    unsigned int hours = rest / (60 * 60);
-    rest = rest - (hours * 60 * 60);
-    unsigned int minutes = rest / 60;
-    rest = rest - (minutes * 60);
-    std::stringstream res;
-    res << std::setw(2) << days << "d " << std::setw(2) << hours << "h " << std::setw(2) << minutes << "m " << std::fixed << std::setprecision(2) << rest << "s";
-    return res.str();
-}
-
 template <typename T>
 SimulationNBodyInterface<T> *createImplem() {
     BodiesAllocator<T> allocator(NBodies, BodiesScheme);
@@ -160,6 +143,7 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu) {
 }
 
 template <typename T>
+// Preserved for Phase 1b; the Phase 1 runner never opens a trajectory file.
 void exportBinaryFrame(std::ofstream &outFile, SimulationNBodyInterface<T> *simu, unsigned long NBodies) {
     const dataSoA_t<T>& data = simu->getBodies()->getDataSoA();
     outFile.write(reinterpret_cast<const char*>(data.qx.data()), NBodies * sizeof(T));
@@ -191,54 +175,65 @@ void initializeCudaDevice() {
 
 int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
-    int rank = 0;
 #ifdef USE_CUDA
     if (ImplTag == "gpu+tile+full") initializeCudaDevice();
 #endif
 
-    SimulationNBodyInterface<float> *simu = createImplem<float>();
+    std::unique_ptr<SimulationNBodyInterface<float>> simu(createImplem<float>());
     NBodies = simu->getBodies()->getN();
-
-    // --- PROTEZIONE PLAYER: Non aprire il file in scrittura se stiamo leggendo ---
-    std::ofstream dumpFile;
-    if (rank == 0 && ImplTag != "bin+player") {
-        dumpFile.open("simulation_data.bin", std::ios::binary);
-        if (dumpFile.is_open()) {
-            dumpFile.write(reinterpret_cast<char*>(&NBodies), sizeof(unsigned long));
-            dumpFile.write(reinterpret_cast<char*>(&NIterations), sizeof(unsigned long));
-        }
-    }
-
-    SpheresVisu *visu = createVisu<float>(simu);
+    std::unique_ptr<SpheresVisu> visu(createVisu<float>(simu.get()));
     simu->setDt(Dt);
 
-    std::cout << "Simulation started..." << std::endl;
-    Perf perfIte, perfTotal;
-    float physicTime = 0.f;
-    unsigned long iIte;
+    std::cout << "backend=" << ImplTag << " bodies=" << NBodies
+              << " iterations=" << NIterations << " dt=" << std::setprecision(9) << Dt
+              << " softening=" << Softening << " scheme=" << BodiesScheme
+              << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off")
+              << " recording=off\n";
 
-    for (iIte = 1; iIte <= NIterations && !visu->windowShouldClose(); iIte++) {
-        visu->refreshDisplay();
+    Perf perfIte, perfTotal, wall;
+    unsigned long completed = 0;
+#ifdef USE_CUDA
+    if (ImplTag == "gpu+tile+full")
+        checkCuda(cudaDeviceSynchronize(), "CUDA completion before timing");
+#endif
+    wall.start();
+    while (completed < NIterations && !visu->windowShouldClose()) {
         perfIte.start();
         simu->computeOneIteration();
+#ifdef USE_CUDA
+        if (ImplTag == "gpu+tile+full") {
+            checkCuda(cudaGetLastError(), "CUDA iteration launch");
+            checkCuda(cudaDeviceSynchronize(), "CUDA iteration completion");
+        }
+#endif
         perfIte.stop();
         perfTotal += perfIte;
+        ++completed;
 
-        // --- PROTEZIONE PLAYER: Non esportare se stiamo leggendo ---
-        if (rank == 0 && ImplTag != "bin+player" && dumpFile.is_open() && iIte % 10 == 0) {
-            exportBinaryFrame(dumpFile, simu, NBodies);
+        if (VisuEnable) {
+            // Refresh cached GPU state outside compute timing, before rendering.
+            simu->getBodies()->getDataSoA();
+            visu->refreshDisplay();
         }
-
-        physicTime += simu->getDt();
-        if (Verbose) std::cout << "Iteration n°" << iIte << " (" << perfTotal.getFPS(iIte) << " FPS)\r" << std::flush;
+        if (Verbose && (completed == 1 || completed % 10 == 0 || completed == NIterations))
+            std::cout << "completed=" << completed << '/' << NIterations << '\n';
     }
-
-    if (rank == 0 && dumpFile.is_open()) dumpFile.close();
-
-    delete visu;
-    delete simu;
+    wall.stop();
+    const double interactions = static_cast<double>(NBodies) * NBodies * completed;
+    const double computeMs = perfTotal.getElapsedTime();
+    const double rate = computeMs > 0 ? interactions * 1000.0 / computeMs : 0.0;
+    std::cout << std::setprecision(9)
+              << "completed_iterations=" << completed
+              << " compute_ms=" << computeMs
+              << " loop_wall_ms=" << wall.getElapsedTime()
+              << " interactions_per_second=" << rate;
+    if (ShowGFlops)
+        std::cout << " estimated_GFLOP_per_second=" << rate * 20.0 / 1e9;
+    std::cout << '\n';
+    if (computeMs <= 0) std::cout << "Timing below clock resolution; rates reported as zero.\n";
     return EXIT_SUCCESS;
 }
+
 int main(int argc, char **argv) {
     try {
         return runSimulation(argc, argv);
