@@ -14,10 +14,14 @@ The command-line demo supports these backends:
 - `gpu+tile+full`: tiled CUDA implementation with all body state resident on
   one device.
 
-Other implementation sources remain in the repository but are deliberately
-unavailable through the Phase 1 command-line interface. Multi-GPU execution,
-trajectory recording, and `bin+player` replay are deferred. The stabilization
-does not delete or substantially change those implementations.
+This exploratory branch also makes `cpu+optim`, `cpu+simd`, `gpu+tile`, and
+`gpu+tile+full200k` selectable for small correctness and smoke tests. They do
+not replace the three Phase 1 demo backends. Their validation status and known
+limits are recorded in [SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md).
+
+Multi-GPU execution, trajectory recording, and `bin+player` replay remain
+deferred. The exploration does not delete or substantially change those
+implementations.
 
 Leonardo benchmark jobs are headless. A local build may still enable the
 existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
@@ -90,7 +94,8 @@ Options used by the demo are:
 
 - `-n`: positive number of bodies.
 - `-i`: positive number of iterations.
-- `--im`: one of the three supported backend tags.
+- `--im`: a supported Phase 1 backend tag, or one of the four exploratory tags
+  listed above on this branch.
 - `--nv`: explicitly select headless operation.
 - `--gf`: report an estimated GFLOP/s value using 20 operations per
   interaction.
@@ -177,7 +182,7 @@ Phase 1 benchmark workflow.
 The following paths are not supported or validated by this stabilization:
 
 - MPI and `gpu+multinode`.
-- `gpu+tracking`, `gpu+leapfrog`, and `gpu+tile+full200k`.
+- `gpu+tracking` and `gpu+leapfrog`.
 - Heterogeneous CPU/GPU execution.
 - Barnes-Hut, OpenCL, CADNA, and other experimental kernels.
 - Binary trajectory recording and `bin+player` replay.
