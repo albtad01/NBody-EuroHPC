@@ -21,10 +21,14 @@
 
 #include "implem/SimulationNBodyNaive.hpp"
 #include "implem/SimulationNBodyOpenMP.hpp"
+#include "implem/SimulationNBodyOptim.hpp"
+#include "implem/SimulationNBodySIMD.hpp"
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
+#include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
+#include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
 #endif
 
 /* global variables */
@@ -40,6 +44,11 @@ unsigned int WinWidth = 1024;        /*!< Window width for visualization. */
 unsigned int WinHeight = 768;        /*!< Window height for visualization. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
+
+bool isCudaBackend() {
+    return ImplTag == "gpu+tile" || ImplTag == "gpu+tile+full" ||
+           ImplTag == "gpu+tile+full200k";
+}
 
 void printVersion() {
     std::cout << "murb revision=" << MURB_REVISION << " dirty=" << MURB_BUILD_DIRTY
@@ -63,7 +72,8 @@ void printVersion() {
 
 void printUsage() {
     std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
-              << "Phase 1 backends: cpu+naive, cpu+omp, gpu+tile+full (CUDA build only).\n"
+              << "Exploratory backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp, "
+                 "gpu+tile, gpu+tile+full, gpu+tile+full200k (CUDA build only).\n"
               << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help, --version.\n"
               << "Recording, bin+player and other backends are deferred.\n";
 }
@@ -125,11 +135,13 @@ void argsReader(int argc, char **argv) {
 #endif
     if (BodiesScheme != "galaxy" && BodiesScheme != "random")
         throw std::invalid_argument("--scheme must be galaxy or random in Phase 1");
-    if (ImplTag != "cpu+naive" && ImplTag != "cpu+omp" && ImplTag != "gpu+tile+full")
-        throw std::invalid_argument("unsupported Phase 1 backend: " + ImplTag);
+    if (ImplTag != "cpu+naive" && ImplTag != "cpu+optim" && ImplTag != "cpu+simd" &&
+        ImplTag != "cpu+omp" && ImplTag != "gpu+tile" &&
+        ImplTag != "gpu+tile+full" && ImplTag != "gpu+tile+full200k")
+        throw std::invalid_argument("unsupported exploratory backend: " + ImplTag);
 #ifndef USE_CUDA
-    if (ImplTag == "gpu+tile+full")
-        throw std::invalid_argument("gpu+tile+full requires a CUDA build");
+    if (isCudaBackend())
+        throw std::invalid_argument(ImplTag + " requires a CUDA build");
 #endif
 #ifndef _OPENMP
     if (ImplTag == "cpu+omp")
@@ -141,14 +153,21 @@ template <typename T>
 SimulationNBodyInterface<T> *createImplem() {
     BodiesAllocator<T> allocator(NBodies, BodiesScheme);
     if (ImplTag == "cpu+naive") return new SimulationNBodyNaive<T>(allocator, Softening);
+    if (ImplTag == "cpu+optim") return new SimulationNBodyOptim<T>(allocator, Softening);
+    if (ImplTag == "cpu+simd")  return new SimulationNBodySIMD<T>(allocator, Softening);
     if (ImplTag == "cpu+omp")   return new SimulationNBodyOpenMP<T>(allocator, Softening);
 #ifdef USE_CUDA
+    if (ImplTag == "gpu+tile") return new SimulationNBodyCUDATile<T>(allocator, Softening);
     if (ImplTag == "gpu+tile+full") {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         return new SimulationNBodyCUDATileFullDevice<T>(cudaAllocator, Softening, false);
     }
+    if (ImplTag == "gpu+tile+full200k") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        return new SimulationNBodyCUDATileFullDevice200k<T>(cudaAllocator, Softening, false);
+    }
 #endif
-    throw std::invalid_argument("unsupported or unavailable Phase 1 backend: " + ImplTag);
+    throw std::invalid_argument("unsupported or unavailable exploratory backend: " + ImplTag);
 }
 
 template <typename T>
@@ -203,7 +222,7 @@ int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
     printVersion();
 #ifdef USE_CUDA
-    if (ImplTag == "gpu+tile+full") initializeCudaDevice();
+    if (isCudaBackend()) initializeCudaDevice();
 #endif
 
     std::unique_ptr<SimulationNBodyInterface<float>> simu(createImplem<float>());
@@ -220,7 +239,7 @@ int runSimulation(int argc, char **argv) {
     Perf perfIte, perfTotal, wall;
     unsigned long completed = 0;
 #ifdef USE_CUDA
-    if (ImplTag == "gpu+tile+full")
+    if (isCudaBackend())
         checkCuda(cudaDeviceSynchronize(), "CUDA completion before timing");
 #endif
     wall.start();
@@ -228,7 +247,7 @@ int runSimulation(int argc, char **argv) {
         perfIte.start();
         simu->computeOneIteration();
 #ifdef USE_CUDA
-        if (ImplTag == "gpu+tile+full") {
+        if (isCudaBackend()) {
             checkCuda(cudaGetLastError(), "CUDA iteration launch");
             checkCuda(cudaDeviceSynchronize(), "CUDA iteration completion");
         }

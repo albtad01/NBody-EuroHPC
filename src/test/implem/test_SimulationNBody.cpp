@@ -2,81 +2,141 @@
 #include <catch.hpp>
 #include <cmath>
 #include <exception>
-#include <numeric>
-#include <random>
-#include <string>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
 
-// Common CPU includes
 #include "SimulationNBodyNaive.hpp"
 #include "SimulationNBodyOpenMP.hpp"
+#include "SimulationNBodyOptim.hpp"
+#include "SimulationNBodySIMD.hpp"
 
-// CUDA includes (only if enabled)
 #ifdef USE_CUDA
-    #include "SimulationNBodyCUDATileFullDevice.hpp"
+#include "SimulationNBodyCUDATile.hpp"
+#include "SimulationNBodyCUDATileFullDevice.hpp"
+#include "SimulationNBodyCUDATileFullDevice200k.hpp"
 #endif
 
-template <typename T>
-void compare_arrays(const T* a1, const T* a2, int n) {
-    for ( int i = 0; i < n; i++ ) {
-        CAPTURE(i);
-        REQUIRE_THAT(a1[i], Catch::Matchers::WithinRel(a2[i]));
+enum class Backend {
+    CpuOptim,
+    CpuSimd,
+    CpuOmp,
+#ifdef USE_CUDA
+    GpuTile,
+    GpuTileFull,
+    GpuTileFull200k,
+#endif
+};
+
+const char* backendName(Backend backend) {
+    switch (backend) {
+        case Backend::CpuOptim: return "cpu+optim";
+        case Backend::CpuSimd: return "cpu+simd";
+        case Backend::CpuOmp: return "cpu+omp";
+#ifdef USE_CUDA
+        case Backend::GpuTile: return "gpu+tile";
+        case Backend::GpuTileFull: return "gpu+tile+full";
+        case Backend::GpuTileFull200k: return "gpu+tile+full200k";
+#endif
     }
+    return "unknown";
 }
 
-void test_nbody_correctness(const size_t n, const float soft, const float dt, const size_t nIte, const std::string &scheme, const float eps)
+std::unique_ptr<SimulationNBodyInterface<float>> makeTarget(
+    Backend backend, const size_t n, const std::string& scheme, const float soft)
 {
-    // Reference Implementation (CPU Naive)
+    BodiesAllocator<float> hostAllocator(n, scheme);
+    switch (backend) {
+        case Backend::CpuOptim:
+            return std::make_unique<SimulationNBodyOptim<float>>(hostAllocator, soft);
+        case Backend::CpuSimd:
+            return std::make_unique<SimulationNBodySIMD<float>>(hostAllocator, soft);
+        case Backend::CpuOmp:
+            return std::make_unique<SimulationNBodyOpenMP<float>>(hostAllocator, soft);
+#ifdef USE_CUDA
+        case Backend::GpuTile:
+            return std::make_unique<SimulationNBodyCUDATile<float>>(hostAllocator, soft);
+        case Backend::GpuTileFull: {
+            CUDABodiesAllocator<float> cudaAllocator(n, scheme);
+            return std::make_unique<SimulationNBodyCUDATileFullDevice<float>>(cudaAllocator, soft, false);
+        }
+        case Backend::GpuTileFull200k: {
+            CUDABodiesAllocator<float> cudaAllocator(n, scheme);
+            return std::make_unique<SimulationNBodyCUDATileFullDevice200k<float>>(cudaAllocator, soft, false);
+        }
+#endif
+    }
+    throw std::invalid_argument("unknown test backend");
+}
+
+void compareValue(const float reference, const float candidate, const float tolerance) {
+    const float scale = std::max(1.0f, std::max(std::abs(reference), std::abs(candidate)));
+    REQUIRE(std::abs(reference - candidate) <= tolerance * scale);
+}
+
+void testNBodyCorrectness(Backend backend, const size_t n, const float soft, const float dt,
+                          const size_t iterations, const std::string& scheme, const float tolerance)
+{
     BodiesAllocator<float> naiveAllocator(n, scheme);
-    SimulationNBodyNaive<float> simuRef(naiveAllocator, soft);
-    simuRef.setDt(dt);
+    SimulationNBodyNaive<float> referenceSimulation(naiveAllocator, soft);
+    referenceSimulation.setDt(dt);
 
-    // Target Implementation (GPU if CUDA is ON, otherwise CPU OpenMP)
-#ifdef USE_CUDA
-    CUDABodiesAllocator<float> targetAllocator(n, scheme);
-    SimulationNBodyCUDATileFullDevice<float> simuTest(targetAllocator, soft);
-#else
-    BodiesAllocator<float> targetAllocator(n, scheme);
-    SimulationNBodyOpenMP<float> simuTest(targetAllocator, soft);
-#endif
-    simuTest.setDt(dt);
+    auto candidateSimulation = makeTarget(backend, n, scheme, soft);
+    candidateSimulation->setDt(dt);
 
-    std::cout << std::setprecision(10);
-
-    // Iteration loop
-    for (size_t i = 0; i < nIte + 1; i++) {
-        if (i > 0) { 
-            simuRef.computeOneIteration(); 
-            simuTest.computeOneIteration(); 
+    for (size_t iteration = 0; iteration <= iterations; ++iteration) {
+        if (iteration > 0) {
+            referenceSimulation.computeOneIteration();
+            candidateSimulation->computeOneIteration();
         }
 
-        const float *xRef = simuRef.getBodies()->getDataSoA().qx.data();
-        const float *yRef = simuRef.getBodies()->getDataSoA().qy.data();
-        const float *zRef = simuRef.getBodies()->getDataSoA().qz.data();
+        const auto& reference = referenceSimulation.getBodies()->getDataSoA();
+        const auto& candidate = candidateSimulation->getBodies()->getDataSoA();
+        const float allowed = iteration > 0 ? tolerance : 0.0f;
 
-        // On GPU, this call automatically triggers cudaMemcpy from Device to Host
-        const float *xTest = simuTest.getBodies()->getDataSoA().qx.data();
-        const float *yTest = simuTest.getBodies()->getDataSoA().qy.data();
-        const float *zTest = simuTest.getBodies()->getDataSoA().qz.data();
-
-        const float e = (i > 0) ? eps : 0.f;
-        for (size_t b = 0; b < n; b++) {
-            CAPTURE(b, i, std::log10(eps), xRef[b], xTest[b]);
-            REQUIRE_THAT(xRef[b], Catch::Matchers::WithinRel(xTest[b], e));
-            REQUIRE_THAT(yRef[b], Catch::Matchers::WithinRel(yTest[b], e));
-            REQUIRE_THAT(zRef[b], Catch::Matchers::WithinRel(zTest[b], e));
+        for (size_t body = 0; body < n; ++body) {
+            CAPTURE(backendName(backend), scheme, n, body, iteration, tolerance);
+            compareValue(reference.qx[body], candidate.qx[body], allowed);
+            compareValue(reference.qy[body], candidate.qy[body], allowed);
+            compareValue(reference.qz[body], candidate.qz[body], allowed);
+            compareValue(reference.vx[body], candidate.vx[body], allowed);
+            compareValue(reference.vy[body], candidate.vy[body], allowed);
+            compareValue(reference.vz[body], candidate.vz[body], allowed);
         }
     }
 }
 
-TEST_CASE("n-body - Correctness", "[correctness]")
-{
-    // Random tests
-    SECTION("fp32 - n=2048 - i=1 - random") { test_nbody_correctness(2048, 2e+08, 3600, 1, "random", 1e-3); }
-    SECTION("fp32 - n=2049 - i=3 - random") { test_nbody_correctness(2049, 2e+08, 3600, 3, "random", 1e-3); }
-
-    // Galaxy tests
-    SECTION("fp32 - n=2048 - i=4 - galaxy") { test_nbody_correctness(2048, 2e+08, 3600, 4, "galaxy", 1e-1); }
-    SECTION("fp32 - n=2049 - i=3 - galaxy") { test_nbody_correctness(2049, 2e+08, 3600, 3, "galaxy", 1e-1); }
+void testBackend(Backend backend) {
+    testNBodyCorrectness(backend, 2048, 2e+08f, 3600, 1, "random", 1e-3f);
+    testNBodyCorrectness(backend, 2049, 2e+08f, 3600, 3, "random", 1e-3f);
+    testNBodyCorrectness(backend, 2048, 2e+08f, 3600, 4, "galaxy", 1e-1f);
+    testNBodyCorrectness(backend, 2049, 2e+08f, 3600, 3, "galaxy", 1e-1f);
 }
+
+TEST_CASE("cpu+optim matches cpu+naive", "[correctness][cpu-optim]") {
+    testBackend(Backend::CpuOptim);
+}
+
+TEST_CASE("cpu+simd matches cpu+naive", "[correctness][cpu-simd]") {
+    testBackend(Backend::CpuSimd);
+}
+
+TEST_CASE("cpu+omp matches cpu+naive", "[correctness][cpu-omp]") {
+    testBackend(Backend::CpuOmp);
+}
+
+#ifdef USE_CUDA
+TEST_CASE("gpu+tile matches cpu+naive", "[correctness][gpu-tile]") {
+    testBackend(Backend::GpuTile);
+}
+
+TEST_CASE("gpu+tile+full matches cpu+naive", "[correctness][gpu-tile-full]") {
+    testBackend(Backend::GpuTileFull);
+}
+
+TEST_CASE("gpu+tile+full200k matches cpu+naive", "[correctness][gpu-tile-full200k]") {
+    testBackend(Backend::GpuTileFull200k);
+}
+#endif
