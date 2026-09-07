@@ -24,7 +24,6 @@
 #include "implem/SimulationNBodyOpenMP.hpp"
 
 #ifdef USE_CUDA
-#include <mpi.h>
 #include <cuda_runtime.h>
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #endif
@@ -168,14 +167,33 @@ void exportBinaryFrame(std::ofstream &outFile, SimulationNBodyInterface<T> *simu
     outFile.write(reinterpret_cast<const char*>(data.qz.data()), NBodies * sizeof(T));
 }
 
+#ifdef USE_CUDA
+void checkCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string(operation) + ": " + cudaGetErrorString(result));
+}
+
+void initializeCudaDevice() {
+    int count = 0;
+    checkCuda(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
+    if (count < 1) throw std::runtime_error("gpu+tile+full requires a visible CUDA GPU");
+    // Phase 1 selects the first visible device; Slurm assigns one GPU to the task.
+    // This must precede construction of any CUDA allocator or simulation object.
+    checkCuda(cudaSetDevice(0), "cudaSetDevice(0)");
+    cudaDeviceProp properties{};
+    checkCuda(cudaGetDeviceProperties(&properties, 0), "cudaGetDeviceProperties");
+    char busId[32]{};
+    checkCuda(cudaDeviceGetPCIBusId(busId, sizeof(busId), 0), "cudaDeviceGetPCIBusId");
+    std::cout << "CUDA device: 0 (" << properties.name << "), PCI " << busId
+              << ", visible devices: " << count << '\n';
+}
+#endif
+
 int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
     int rank = 0;
 #ifdef USE_CUDA
-    int mpi_inited = 0;
-    MPI_Initialized(&mpi_inited);
-    if (!mpi_inited) MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (ImplTag == "gpu+tile+full") initializeCudaDevice();
 #endif
 
     SimulationNBodyInterface<float> *simu = createImplem<float>();
