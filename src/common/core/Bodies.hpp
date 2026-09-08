@@ -109,14 +109,14 @@ template <typename T> class Bodies {
      *
      *  \return The number of bodies.
      */
-    const unsigned long getN() const;
+    unsigned long getN() const;
 
     /*!
      *  \brief Padding getter.
      *
      *  \return The number of bodies in the padding zone.
      */
-    const unsigned short getPadding() const;
+    unsigned short getPadding() const;
 
     /*!
      *  \brief SoA data getter.
@@ -137,7 +137,7 @@ template <typename T> class Bodies {
      *
      *  \return The number of allocated bytes.
      */
-    const float getAllocatedBytes() const;
+    float getAllocatedBytes() const;
 
     /*!
      *  \brief Update positions and velocities array.

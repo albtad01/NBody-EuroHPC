@@ -2,21 +2,20 @@
 #define SIMULATION_N_BODY_CUDA_TILE_FULL_DEVICE_CU_
 
 #include <cuda_runtime.h>
-#include <cstdio>
-#include <cstdlib>
 #include <type_traits>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include "SimulationNBodyCUDATileFullDevice.hpp"
 
-#define CUDA_CHECK(err) do { cuda_check((err), __FILE__, __LINE__); } while(false)
-static inline void cuda_check(cudaError_t error_code, const char *file, int line) {
-    if (error_code != cudaSuccess) {
-        fprintf(stderr, "CUDA Error %d: %s. In file '%s' on line %d\n",
-                (int)error_code, cudaGetErrorString(error_code), file, line);
-        std::exit(EXIT_FAILURE);
-    }
+namespace {
+void checkFullCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string("gpu+tile+full ") + operation + ": " +
+                                 cudaGetErrorString(result));
 }
+}
+#define CUDA_CHECK(call) checkFullCuda((call), #call)
 
 template <typename T>
 __device__ __forceinline__ T device_rsqrt(T val);
@@ -173,18 +172,8 @@ SimulationNBodyCUDATileFullDevice<T>::SimulationNBodyCUDATileFullDevice(
     const int n = static_cast<int>(bodyCount);
     this->flopsPerIte = 20.f * (T)n * (T)n;
 
-    // Detect GPU and choose EPT (A100 tends to like EPT=2 for occupancy)
-    int dev = 0;
-    CUDA_CHECK(cudaGetDevice(&dev));
-    cudaDeviceProp prop{};
-    CUDA_CHECK(cudaGetDeviceProperties(&prop, dev));
-
-    // Default tuning
+    // Preserve the launch configuration used by the validated A100 baseline.
     this->_num_threads = 256;
-
-    // SM80 = A100
-    // const bool is_a100 = (prop.major == 8 && prop.minor == 0);
-    // this->_elem_per_thread = is_a100 ? 2 : 4;
     this->_elem_per_thread = 4;
 
 

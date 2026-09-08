@@ -14,16 +14,14 @@
 
 #include "SimulationNBodyCUDATileFullDevice200k.hpp"
 
-#define CUDA_CHECK(err) do { cuda_check((err), __FILE__, __LINE__); } while(false)
-inline void cuda_check(cudaError_t error_code, const char *file, int line)
-{
-    if (error_code != cudaSuccess)
-    {
-        fprintf(stderr, "CUDA Error %d: %s. In file '%s' on line %d\n", error_code, cudaGetErrorString(error_code), file, line);
-        fflush(stderr);
-        exit(error_code);
-    }
+namespace {
+void checkFull200kCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string("gpu+tile+full200k ") + operation + ": " +
+                                 cudaGetErrorString(result));
 }
+}
+#define CUDA_CHECK(call) checkFull200kCuda((call), #call)
 
 // =================================== TEMPLATE of SQRT ====================================
 template <typename T>
@@ -196,17 +194,18 @@ void SimulationNBodyCUDATileFullDevice200k<T>::computeBodiesAcceleration()
                                             this->devAccelerations,
                                             this->cudaBodiesPtr->getDevDataSoA(),
                                             this->devGM,
-                                            this->bodies->getN(), this->G, this->softSquared);
+                                            static_cast<int>(this->bodies->getN()),
+                                            this->G, this->softSquared);
 
     CUDA_CHECK(cudaGetLastError());
 }
 
 template <typename T>
 SimulationNBodyCUDATileFullDevice200k<T>::~SimulationNBodyCUDATileFullDevice200k() {
-    CUDA_CHECK(cudaFree(devAccelerations.x));
-    CUDA_CHECK(cudaFree(devAccelerations.y));
-    CUDA_CHECK(cudaFree(devAccelerations.z));
-    CUDA_CHECK(cudaFree(devGM));
+    cudaFree(devAccelerations.x);
+    cudaFree(devAccelerations.y);
+    cudaFree(devAccelerations.z);
+    cudaFree(devGM);
 }
 
 template class SimulationNBodyCUDATileFullDevice200k<float>;

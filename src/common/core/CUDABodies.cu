@@ -1,13 +1,12 @@
 #include "core/CUDABodies.hpp"
-#include <cstdio>
-#include <cstdlib>
+#include <stdexcept>
+#include <string>
 
 namespace {
 void checkBodyCuda(cudaError_t result, const char* operation) {
-    if (result != cudaSuccess) {
-        std::fprintf(stderr, "CUDA bodies: %s: %s\n", operation, cudaGetErrorString(result));
-        std::exit(EXIT_FAILURE);
-    }
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string("CUDA bodies ") + operation + ": " +
+                                 cudaGetErrorString(result));
 }
 }
 #define BODY_CUDA_CHECK(call) checkBodyCuda((call), #call)

@@ -40,15 +40,15 @@ template <typename T> void Bodies<T>::allocateBuffers()
     this->allocatedBytes = (this->n + this->padding) * sizeof(T) * 8 * 2;
 }
 
-template <typename T> const unsigned long Bodies<T>::getN() const { return this->n; }
+template <typename T> unsigned long Bodies<T>::getN() const { return this->n; }
 
-template <typename T> const unsigned short Bodies<T>::getPadding() const { return this->padding; }
+template <typename T> unsigned short Bodies<T>::getPadding() const { return this->padding; }
 
 template <typename T> const dataSoA_t<T> &Bodies<T>::getDataSoA() const { return this->dataSoA; }
 
 template <typename T> const std::vector<dataAoS_t<T>> &Bodies<T>::getDataAoS() const { return this->dataAoS; }
 
-template <typename T> const float Bodies<T>::getAllocatedBytes() const { return this->allocatedBytes; }
+template <typename T> float Bodies<T>::getAllocatedBytes() const { return this->allocatedBytes; }
 
 template <typename T>
 void Bodies<T>::setBody(const unsigned long &iBody, const T &mi, const T &ri, const T &qix, const T &qiy, const T &qiz,
