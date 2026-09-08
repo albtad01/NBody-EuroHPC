@@ -1,57 +1,74 @@
-# MUrB: N-Body Simulation on CPU and GPU
+# MUrB – N-Body Simulation on CPU & GPU
 
-MUrB is an all-pairs gravitational N-body simulation derived from the Sorbonne
-University PACC project and extended for EuroHPC demonstrations. This branch is
-a small stabilization baseline for CPU execution and one NVIDIA A100 on the
-Leonardo supercomputer.
+![MUrB demo](assets/demo.gif)
 
-## Phase 1 support
+N-body gravitational simulation with a progression from a CPU reference
+implementation to a single NVIDIA A100 and a four-A100 MPI implementation,
+validated on the Leonardo supercomputer.
 
-The command-line demo supports these backends:
+The project derives from the Sorbonne University / LIP6 MUrB project and was
+extended for EuroHPC demonstrations, including the EuroHPC User Days 2026 Demo
+Lab.
 
-- `cpu+naive`: single-threaded CPU reference implementation.
-- `cpu+omp`: OpenMP CPU implementation.
-- `gpu+tile+full`: tiled CUDA implementation with all body state resident on
-  one device.
+## Implementations
 
-This exploratory branch also makes `cpu+optim`, `cpu+simd`, `gpu+tile`, and
-`gpu+tile+full200k` selectable for small correctness and smoke tests. They do
-not replace the three Phase 1 demo backends. Their validation status and known
-limits are recorded in [SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md).
+| Tag | Backend | Description |
+|-----|---------|-------------|
+| `cpu+naive` | CPU | Reference O(N²) implementation |
+| `cpu+omp` | CPU / OpenMP | Parallel CPU implementation |
+| `gpu+tile+full` | CUDA | Fully device-resident tiled implementation |
+| `gpu+multinode` | CUDA + MPI | Four A100s on one Leonardo Booster node |
 
-Multi-GPU execution remains deferred. Simulations can optionally record a
-versioned `.murbtraj` file for replay on a separate visualization machine.
+The historical name `gpu+multinode` is retained, but the supported topology is
+one Booster node, four MPI ranks, and four A100 GPUs. It does not currently
+support multi-node execution.
 
-Leonardo benchmark jobs are headless. A local build may still enable the
-existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
+Additional exploratory single-node implementations are `cpu+optim`,
+`cpu+simd`, `gpu+tile`, and `gpu+tile+full200k`. See
+[SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md) for their status and scope.
 
-## Requirements
+## Repository Layout
 
-- CMake 3.21 or newer.
-- A C++20 compiler.
-- OpenMP for `cpu+omp`.
-- CUDA 12 and compute capability 8.0 for the Leonardo A100 build.
-- OpenGL, GLEW, GLM, and GLFW only for an optional local visualization build.
+```text
+.
+├── CMakeLists.txt             # Main build definition
+├── CMakePresets.json          # Build presets
+├── assets/                    # Demo media
+├── lib/                       # Bundled Catch2 and MIPP dependencies
+├── scripts/                   # Leonardo SLURM jobs and utilities
+├── src/
+│   ├── common/
+│   │   ├── core/              # Body data, simulation interfaces, trajectories
+│   │   ├── ogl/               # OpenGL visualization
+│   │   └── utils/             # CLI parsing and performance reporting
+│   ├── murb/
+│   │   ├── implem/            # CPU, CUDA, and MPI implementations
+│   │   └── main.cpp           # Application entry point
+│   └── test/                  # Correctness and format tests
+├── SINGLE_NODE_BACKENDS.md
+├── MULTI_GPU.md
+├── TRAJECTORY_FORMAT.md
+└── LEONARDO_NOTES.md
+```
 
-MIPP and Catch2 are included under `lib/`.
+## Build
 
-## Build on Leonardo
+Build before submitting a job. Each path uses a separate CMake preset and build
+directory.
 
-Build once before submitting a job. The job scripts use the existing binary;
-they never configure, rebuild, or remove a build directory.
-
-For a headless CPU build:
+### Leonardo CPU
 
 ```bash
 module purge
 module load profile/base
 module load gcc/12.2.0
 module load cmake/3.27.9
+
 cmake --preset generic
 cmake --build build-generic -j 32
 ```
 
-For a headless A100 build:
+### Leonardo: one A100
 
 ```bash
 module purge
@@ -59,168 +76,143 @@ module load profile/base
 module load gcc/12.2.0
 module load cuda/12.2
 module load cmake/3.27.9
+
 cmake --preset leonardo
 cmake --build build-leonardo -j 32
 ```
 
-The `generic` preset enables OpenMP and disables CUDA and visualization. The
-`leonardo` preset enables OpenMP and CUDA, targets `sm_80`, and disables
-visualization.
-
-A successful build creates `murb-build.ready`. The executable reports its
-compiled source identity:
+### Leonardo: four A100s with MPI
 
 ```bash
-./build-generic/bin/murb --version
+module purge
+module load profile/base
+module load gcc/12.2.0
+module load cuda/12.2
+module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
+module load cmake/3.27.9
+
+cmake --preset leonardo-multi
+cmake --build build-leonardo-multi -j 32
 ```
 
-The SLURM scripts require the executable revision to match the checked-out
-revision and reject binaries built from dirty tracked sources. Rebuild after
-each source commit before submitting.
+### macOS visualization
 
-## Command line
-
-The Phase 1 syntax is:
-
-```text
-murb -n BODIES -i ITERATIONS --im BACKEND [--warmup ITERATIONS] [--record FILE.murbtraj] [--record-every K] [--nv] [--gf] [--dt SECONDS]
-```
-
-Options used by the demo are:
-
-- `-n`: positive number of bodies.
-- `-i`: positive number of iterations.
-- `--im`: a supported Phase 1 backend tag, or one of the four exploratory tags
-  listed above on this branch.
-- `--nv`: explicitly select headless operation.
-- `--gf`: report an estimated GFLOP/s value using 20 operations per
-  interaction.
-- `--dt`: finite, positive time step in seconds.
-- `--warmup`: optional positive number of untimed iterations performed in the
-  same process before measurement.
-- `--record`: explicitly enable trajectory recording to the given `.murbtraj`
-  path.
-- `--record-every`: record every Kth timed iteration; the default is every
-  timed iteration.
-
-`--scheme galaxy|random`, `-v`, `--help`, and `--version` are also accepted.
-Unknown, duplicate, missing, and invalid options cause a clear nonzero exit.
-
-The default mode is headless and does not record a trajectory. Without
-`--record`, no trajectory file or host snapshot is created. `--visu` is
-accepted only by a build in which the OpenGL dependencies were found and
-visualization was compiled.
-
-## Optional trajectory recording and replay
-
-Recording is outside the measured per-iteration compute time. On a full-device
-CUDA simulation, each recorded frame intentionally copies positions and
-velocities to the host after CUDA synchronization. Runs without `--record` do
-not perform that transfer.
-
-For example, on one allocated Leonardo A100:
-
-```bash
-srun --nodes=1 --ntasks=1 --gpus-per-task=1 \
-  ./build-leonardo/bin/murb -n 10000 -i 200 --warmup 5 \
-  --im gpu+tile+full --nv --record /path/to/scratch/demo.murbtraj \
-  --record-every 10
-```
-
-Copy the completed file to the Mac, configure the `mac` preset, and replay it:
-
-```bash
-./build-mac/bin/murb --replay /path/to/demo.murbtraj --visu --replay-fps 30
-```
-
-Replay obtains the body and frame counts from the file; `-n`, `-i`, and
-`--im` are not used. Graphical replay remains unpaced by default for backward
-compatibility; `--replay-fps FPS` limits presentation to a positive rate, and
-`--loop` restarts at the first frame after EOF. Headless replay with `--nv`
-ignores pacing and remains suitable for a fast integrity pass. The format is
-documented in [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md).
-
-## Run the Phase 1 jobs
-
-From the root of a clean checkout with matching prebuilt binaries, submit the
-CPU reference job with:
-
-```bash
-sbatch --account=EUHPC_TDEMO_26_0 scripts/run_cpu.sh
-```
-
-Submit the single-A100 job with:
-
-```bash
-sbatch --account=EUHPC_TDEMO_26 scripts/run_gpu.sh
-```
-
-The opt-in four-A100, one-node MPI phase uses a separate build preset and job
-script. See [MULTI_GPU.md](MULTI_GPU.md); it does not alter the validated
-single-A100 build or submission path.
-
-The CPU script requests one node, one task, and one CPU. The GPU script
-requests one Booster node, one task, eight CPUs, and one GPU. SLURM constrains
-the task to one visible GPU; the program validates that a CUDA device exists
-and selects visible device zero before allocating device memory.
-
-The default workload is 10,000 bodies, 20 iterations, and a 3,600-second time
-step. Override it at submission time, for example:
-
-```bash
-MURB_N=2048 MURB_ITERS=4 MURB_DT=3600 sbatch scripts/run_gpu.sh
-```
-
-The executable prints the backend, problem size, compiled revision, CUDA
-device identity when applicable, elapsed compute time, loop wall time,
-interactions per second, and optional estimated GFLOP/s.
-
-## Validation
-
-Run CPU correctness tests after building with tests enabled:
-
-```bash
-./build-generic/bin/murb-test "[correctness]"
-```
-
-On one allocated A100, the same filter compares `gpu+tile+full` with the
-trusted `cpu+naive` implementation for random and galaxy inputs, including
-body counts that are not exact CUDA block multiples:
-
-```bash
-srun --nodes=1 --ntasks=1 --cpus-per-task=8 --gpus-per-task=1 \
-  ./build-leonardo/bin/murb-test "[correctness]"
-```
-
-That GPU validation must run in a scheduled allocation, not on a login node.
-
-## Optional local visualization
-
-Visualization is outside the Leonardo benchmark path but remains available.
-Configure with `-DENABLE_VISU=ON` on a machine that provides OpenGL, GLEW, GLM,
-and GLFW. A visualization-enabled configuration fails clearly if any of these
-dependencies is absent. Headless presets keep `ENABLE_VISU=OFF`.
-
-The existing `mac` preset requests visualization:
+The `mac` preset builds the OpenGL visualizer used for trajectory replay.
 
 ```bash
 cmake --preset mac
-cmake --build build-mac
+cmake --build build-mac -j $(sysctl -n hw.ncpu)
 ```
 
-## Deferred implementations
+## Run
 
-The following paths are not supported or validated by this stabilization:
+After building the corresponding target, submit one of the three main Leonardo
+jobs from the repository root:
 
-- Multi-node MPI and any topology other than one node with four A100 GPUs.
-- `gpu+tracking` and `gpu+leapfrog`.
-- Heterogeneous CPU/GPU execution.
-- Barnes-Hut, OpenCL, CADNA, and other experimental kernels.
+```bash
+sbatch scripts/run_cpu.sh
+sbatch scripts/run_gpu.sh
+sbatch scripts/run_gpu_multinode.sh
+```
 
-Do not use `scripts/run_gpu_multinode.sh` for the Phase 1 demo.
+| Script | Execution path |
+|--------|----------------|
+| `scripts/run_cpu.sh` | `cpu+naive`, single-core CPU reference |
+| `scripts/run_gpu.sh` | `gpu+tile+full`, 1 × A100 |
+| `scripts/run_gpu_multinode.sh` | `gpu+multinode`, 4 × A100 with 4 MPI ranks |
 
-## License and attribution
+Environment variables override script defaults. Common examples are `MURB_N`
+and `MURB_ITERS`; the four-A100 script also accepts `MURB_WARMUP`. For example:
+
+```bash
+MURB_N=2049 MURB_ITERS=3 MURB_WARMUP=1 \
+  sbatch scripts/run_gpu_multinode.sh
+```
+
+The scripts also accept `MURB_DT`; see the script headers and the linked
+documentation for path-specific controls.
+
+## Trajectory Recording & Replay
+
+Trajectory generation and visualization are deliberately separated:
+
+```text
+Leonardo
+  compute
+    ↓
+ .murbtraj
+    ↓
+   scp
+    ↓
+  macOS
+    ↓
+OpenGL replay
+```
+
+Generate a trajectory on one A100 with the dedicated recording job:
+
+```bash
+sbatch scripts/run_gpu_record.sh
+```
+
+By default it writes outside the worktree under `$SCRATCH` or `$WORK`. Set
+`MURB_OUTPUT` to choose an absolute `.murbtraj` path.
+
+To record a four-A100 run, provide an absolute output path to the four-GPU job:
+
+```bash
+MURB_OUTPUT=/absolute/path/demo.murbtraj \
+  sbatch scripts/run_gpu_multinode.sh
+```
+
+Copy the completed trajectory from Leonardo to the Mac with `scp`, then replay
+it with the visualization build:
+
+```bash
+./build-mac/bin/murb \
+  --replay /path/to/demo.murbtraj \
+  --visu \
+  --replay-fps 10 \
+  --loop
+```
+
+Replay does not recompute the physics. It visualizes the trajectory generated
+on Leonardo. See [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md) for the versioned
+binary format.
+
+## Validation
+
+Revision `e899599e429d94feb0f76f9329e393f7ba25b59b` has been validated on
+Leonardo for:
+
+- `cpu+naive` through the CPU reference build and job;
+- `gpu+tile+full` on one A100;
+- `gpu+multinode` on one Booster node with four A100s and four MPI ranks;
+- non-even body partitions, including N=2049 and N=2051;
+- numerical agreement with the CPU reference;
+- four-A100 `.murbtraj` generation; and
+- replay of that trajectory on macOS.
+
+The current four-GPU implementation prioritizes correctness. Each rank uses
+explicit host-staged `MPI_Allgatherv` synchronization; CUDA-aware or GPU-direct
+MPI communication is future work. Performance depends on workload and
+communication costs, so four GPUs are not assumed to be faster than one.
+
+## Documentation
+
+- [SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md) — single-node backend
+  status and validation.
+- [MULTI_GPU.md](MULTI_GPU.md) — supported four-A100 topology, communication,
+  and correctness checks.
+- [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md) — `.murbtraj` format details.
+- [LEONARDO_NOTES.md](LEONARDO_NOTES.md) — Leonardo environment and operational
+  notes.
+
+## License & Attribution
 
 This repository contains code derived from the MUrB framework developed at
-Sorbonne University, LIP6, and released under the MIT License. Keep the
-repository `LICENSE` file and its attribution when redistributing the code.
+Sorbonne University, LIP6, and released under the MIT License. The project was
+extended for EuroHPC demonstrations; it was not written entirely from scratch.
+
+See [LICENSE](LICENSE). Preserve the original license and attribution when
+redistributing the code.
