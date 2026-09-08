@@ -155,6 +155,10 @@ Submit the single-A100 job with:
 sbatch --account=EUHPC_TDEMO_26 scripts/run_gpu.sh
 ```
 
+The opt-in four-A100, one-node MPI phase uses a separate build preset and job
+script. See [MULTI_GPU.md](MULTI_GPU.md); it does not alter the validated
+single-A100 build or submission path.
+
 The CPU script requests one node, one task, and one CPU. The GPU script
 requests one Booster node, one task, eight CPUs, and one GPU. SLURM constrains
 the task to one visible GPU; the program validates that a CUDA device exists
@@ -208,7 +212,7 @@ cmake --build build-mac
 
 The following paths are not supported or validated by this stabilization:
 
-- MPI and `gpu+multinode`.
+- Multi-node MPI and any topology other than one node with four A100 GPUs.
 - `gpu+tracking` and `gpu+leapfrog`.
 - Heterogeneous CPU/GPU execution.
 - Barnes-Hut, OpenCL, CADNA, and other experimental kernels.

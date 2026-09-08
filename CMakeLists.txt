@@ -17,9 +17,13 @@ option (ENABLE_TEST      "Enable test program to validate MUrB kernels" ON )
 option (ENABLE_MURB_OMP  "Enable to compile the MUrB OMP executable"    ON )
 option (ENABLE_MURB_OCL  "Enable to compile the MUrB OCL executable"    OFF)
 option (ENABLE_MURB_CUDA "Enable to compile the MUrB CUDA executable"  OFF)
+option (ENABLE_MURB_MPI  "Enable the four-GPU MPI backend"             OFF)
 
 if (NOT ENABLE_MURB)
     set (ENABLE_TEST OFF)
+endif()
+if (ENABLE_MURB_MPI AND NOT ENABLE_MURB_CUDA)
+    message(FATAL_ERROR "ENABLE_MURB_MPI requires ENABLE_MURB_CUDA")
 endif()
 
 # Paths and Modules setup
@@ -74,6 +78,12 @@ if (ENABLE_MURB)
             src/murb/implem/SimulationNBodyCUDATileFullDevice.cu
             src/murb/implem/SimulationNBodyCUDATileFullDevice200k.cu
         )
+        if (ENABLE_MURB_MPI)
+            list (APPEND source_murb_implem_files
+                src/murb/implem/MultiGpuRuntime.cpp
+                src/murb/implem/SimulationNBodyMultiNodeCUDA.cu
+            )
+        endif()
     endif()
 
     add_library (murb-implem-lib OBJECT ${source_murb_implem_files})
@@ -153,6 +163,23 @@ if (ENABLE_MURB_CUDA AND ENABLE_MURB)
         $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
     )
 endif ()
+
+# Keep MPI opt-in so CPU, macOS, and validated single-A100 builds remain
+# independent. This phase supports exactly four ranks on one Booster node.
+if (ENABLE_MURB_MPI AND ENABLE_MURB)
+    find_package(MPI REQUIRED COMPONENTS CXX)
+    target_compile_definitions(murb-implem-lib PRIVATE USE_MPI)
+    target_compile_definitions(murb-bin PRIVATE USE_MPI)
+    target_link_libraries(murb-implem-lib PRIVATE MPI::MPI_CXX)
+    target_link_libraries(murb-bin PRIVATE MPI::MPI_CXX)
+    if (ENABLE_TEST)
+        target_compile_definitions(test-bin PRIVATE USE_MPI)
+        target_link_libraries(test-bin PRIVATE MPI::MPI_CXX)
+    endif()
+    message(STATUS "MUrB four-GPU MPI backend: ENABLED (explicit host staging)")
+else()
+    message(STATUS "MUrB four-GPU MPI backend: DISABLED")
+endif()
 
 # Visualization linking
 if (LINK_VISU)

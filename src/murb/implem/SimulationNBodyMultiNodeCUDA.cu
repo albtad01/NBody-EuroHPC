@@ -3,20 +3,26 @@
 #ifdef USE_CUDA
 
 #include <cuda_runtime.h>
-#include <iostream>
-#include <cstdio>
+
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+
+#include "MultiGpuRuntime.hpp"
 
 // =========================================================================
 // MACRO E HELPER DEVICE
 // =========================================================================
-#define CUDA_CHECK(err) do { cuda_check((err), __FILE__, __LINE__); } while(false)
-inline void cuda_check(cudaError_t error_code, const char *file, int line) {
-    if (error_code != cudaSuccess) {
-        fprintf(stderr, "CUDA Error %d: %s. In file '%s' on line %d\n",
-                (int)error_code, cudaGetErrorString(error_code), file, line);
-        exit((int)error_code);
-    }
+namespace {
+void checkMultiCuda(cudaError_t result, const char* operation) {
+    if (result != cudaSuccess)
+        throw std::runtime_error(std::string("gpu+multinode ") + operation + ": " +
+                                 cudaGetErrorString(result));
 }
+}
+
+#define CUDA_CHECK(call) checkMultiCuda((call), #call)
 
 template <typename T> __device__ __forceinline__ T device_rsqrt(T val);
 template <> __device__ __forceinline__ float device_rsqrt<float>(float val) { return rsqrtf(val); }
@@ -149,150 +155,181 @@ __global__ void devUpdateKinematicsMPI(devDataSoA_t<T> devData, const devAccSoA_
 }
 
 // =========================================================================
-// LOGICA C++ HOST (MultiNode CUDA-Aware)
+// HOST ORCHESTRATION (explicit host-staged MPI)
 // =========================================================================
 
 template <typename T>
-MPI_Datatype SimulationNBodyMultiNodeCUDA<T>::mpi_type() {
-    if constexpr (std::is_same<T, float>::value)  return MPI_FLOAT;
-    if constexpr (std::is_same<T, double>::value) return MPI_DOUBLE;
-    return MPI_BYTE;
-}
-
-template <typename T>
-void SimulationNBodyMultiNodeCUDA<T>::initMPI_and_GPU() {
-    int inited = 0;
-    MPI_Initialized(&inited);
-    if (!inited) {
-        int argc = 0; char** argv = nullptr;
-        MPI_Init(&argc, &argv);
+MPI_Datatype SimulationNBodyMultiNodeCUDA<T>::mpiType() {
+    if constexpr (std::is_same_v<T, float>) return MPI_FLOAT;
+    else if constexpr (std::is_same_v<T, double>) return MPI_DOUBLE;
+    else {
+        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+                      "gpu+multinode supports only float and double");
+        return MPI_BYTE;
     }
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    int num_gpus;
-    CUDA_CHECK(cudaGetDeviceCount(&num_gpus));
-    CUDA_CHECK(cudaSetDevice(rank % num_gpus));
 }
 
 template <typename T>
-void SimulationNBodyMultiNodeCUDA<T>::buildCountsDispls(int n) {
-    counts.assign(size, 0);
-    displs.assign(size, 0);
-    const int base = n / size;
-    const int rem  = n % size;
-    for (int r = 0; r < size; ++r) { counts[r] = base + (r < rem ? 1 : 0); }
-    displs[0] = 0;
-    for (int r = 1; r < size; ++r) { displs[r] = displs[r-1] + counts[r-1]; }
-}
-
-template <typename T>
-SimulationNBodyMultiNodeCUDA<T>::SimulationNBodyMultiNodeCUDA(const BodiesAllocatorInterface<T>& allocator, const T soft)
-    : SimulationNBodyInterface<T>(allocator, soft), softSquared(soft*soft)
-{
-    initMPI_and_GPU();
-    
-    int n = (int)this->getBodies()->getN();
-    this->flopsPerIte = 20.f * (T)n * (T)n;
-    
-    // 1. Calcoliamo counts PRIMA di usare local_n
-    buildCountsDispls(n);
-    int local_n = counts[rank];
-
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.x, n * sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.y, n * sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devAccelerations.z, n * sizeof(T)));
-    CUDA_CHECK(cudaMalloc(&this->devGM, n * sizeof(T)));
-
-    // 2. Alloca i Send Buffer (Ora local_n ha il valore corretto!)
-    if (local_n > 0) {
-        CUDA_CHECK(cudaMalloc(&this->send_qx, local_n * sizeof(T)));
-        CUDA_CHECK(cudaMalloc(&this->send_qy, local_n * sizeof(T)));
-        CUDA_CHECK(cudaMalloc(&this->send_qz, local_n * sizeof(T)));
-        CUDA_CHECK(cudaMalloc(&this->send_vx, local_n * sizeof(T)));
-        CUDA_CHECK(cudaMalloc(&this->send_vy, local_n * sizeof(T)));
-        CUDA_CHECK(cudaMalloc(&this->send_vz, local_n * sizeof(T)));
-    } else {
-        this->send_qx = this->send_qy = this->send_qz = nullptr;
-        this->send_vx = this->send_vy = this->send_vz = nullptr;
+void SimulationNBodyMultiNodeCUDA<T>::buildCountsAndDisplacements(int bodyCount) {
+    counts.resize(static_cast<std::size_t>(size));
+    displacements.resize(static_cast<std::size_t>(size));
+    const int quotient = bodyCount / size;
+    const int remainder = bodyCount % size;
+    int displacement = 0;
+    for (int partition = 0; partition < size; ++partition) {
+        counts[static_cast<std::size_t>(partition)] =
+            quotient + (partition < remainder ? 1 : 0);
+        displacements[static_cast<std::size_t>(partition)] = displacement;
+        displacement += counts[static_cast<std::size_t>(partition)];
     }
+    if (displacement != bodyCount)
+        throw std::logic_error("gpu+multinode partition does not cover every body");
+}
 
-    this->cudaBodiesPtr = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
+template <typename T>
+SimulationNBodyMultiNodeCUDA<T>::SimulationNBodyMultiNodeCUDA(
+    const BodiesAllocatorInterface<T>& allocator, T soft)
+    : SimulationNBodyInterface<T>(allocator, soft), softSquared(soft * soft) {
+    int initialized = 0;
+    checkMpi(MPI_Initialized(&initialized), "MPI_Initialized");
+    if (!initialized)
+        throw std::logic_error("gpu+multinode requires MPI_Init before construction");
+    checkMpi(MPI_Comm_rank(MPI_COMM_WORLD, &rank), "MPI_Comm_rank");
+    checkMpi(MPI_Comm_size(MPI_COMM_WORLD, &size), "MPI_Comm_size");
 
-    int init_blocks = (n + 255) / 256;
-    devInitializeDevGM_MPI<T><<<init_blocks, 256>>>(this->cudaBodiesPtr->getDevDataSoA(), n, this->G, this->devGM);
+    const auto bodyCount = this->getBodies()->getN();
+    if (bodyCount == 0 ||
+        bodyCount > static_cast<unsigned long>(std::numeric_limits<int>::max() - 1024))
+        throw std::invalid_argument("gpu+multinode body count exceeds supported dimensions");
+    const int totalBodies = static_cast<int>(bodyCount);
+    buildCountsAndDisplacements(totalBodies);
+
+    cudaBodies = std::dynamic_pointer_cast<CUDABodies<T>>(this->bodies);
+    if (!cudaBodies)
+        throw std::invalid_argument("gpu+multinode requires CUDABodiesAllocator");
+
+    const int localBodies = counts[static_cast<std::size_t>(rank)];
+    localQx.resize(static_cast<std::size_t>(localBodies));
+    localQy.resize(static_cast<std::size_t>(localBodies));
+    localQz.resize(static_cast<std::size_t>(localBodies));
+    localVx.resize(static_cast<std::size_t>(localBodies));
+    localVy.resize(static_cast<std::size_t>(localBodies));
+    localVz.resize(static_cast<std::size_t>(localBodies));
+    globalQx.resize(bodyCount);
+    globalQy.resize(bodyCount);
+    globalQz.resize(bodyCount);
+    globalVx.resize(bodyCount);
+    globalVy.resize(bodyCount);
+    globalVz.resize(bodyCount);
+
+    CUDA_CHECK(cudaMalloc(&deviceAccelerations.x, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&deviceAccelerations.y, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&deviceAccelerations.z, bodyCount * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&deviceGM, bodyCount * sizeof(T)));
+
+    const int initializationBlocks = (totalBodies + threadsPerBlock - 1) / threadsPerBlock;
+    devInitializeDevGM_MPI<T><<<initializationBlocks, threadsPerBlock>>>(
+        cudaBodies->getDevDataSoA(), totalBodies, this->G, deviceGM);
+    CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    this->_num_threads = 256;
-    this->_elem_per_thread = 4;
-    
-    if (local_n > 0)
-        this->_num_blocks = (local_n + (this->_num_threads * this->_elem_per_thread) - 1) / (this->_num_threads * this->_elem_per_thread);
-    else 
-        this->_num_blocks = 0;
+    blockCount = (localBodies + threadsPerBlock * elementsPerThread - 1) /
+                 (threadsPerBlock * elementsPerThread);
+    this->flopsPerIte = T{20} * static_cast<T>(bodyCount) * static_cast<T>(bodyCount);
 }
 
 template <typename T>
-void SimulationNBodyMultiNodeCUDA<T>::syncStateMPI() {
-    auto devData = this->cudaBodiesPtr->getDevDataSoA();
-    int offset = displs[rank];
-    int count = counts[rank];
+void SimulationNBodyMultiNodeCUDA<T>::synchronizeGlobalState() {
+    const auto& deviceData = cudaBodies->getDevDataSoA();
+    const int localBodies = counts[static_cast<std::size_t>(rank)];
+    const int localOffset = displacements[static_cast<std::size_t>(rank)];
+    const auto localBytes = static_cast<std::size_t>(localBodies) * sizeof(T);
+    const auto globalBytes = static_cast<std::size_t>(this->getBodies()->getN()) * sizeof(T);
 
-    if (count == 0) return;
+    if (localBodies > 0) {
+        CUDA_CHECK(cudaMemcpy(localQx.data(), deviceData.qx + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(localQy.data(), deviceData.qy + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(localQz.data(), deviceData.qz + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(localVx.data(), deviceData.vx + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(localVy.data(), deviceData.vy + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(localVz.data(), deviceData.vz + localOffset,
+                              localBytes, cudaMemcpyDeviceToHost));
+    }
 
-    // 1. Copia sicura nei Send Buffers
-    CUDA_CHECK(cudaMemcpy(send_qx, devData.qx + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaMemcpy(send_qy, devData.qy + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaMemcpy(send_qz, devData.qz + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaMemcpy(send_vx, devData.vx + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaMemcpy(send_vy, devData.vy + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaMemcpy(send_vz, devData.vz + offset, count * sizeof(T), cudaMemcpyDeviceToDevice));
-    
-    CUDA_CHECK(cudaDeviceSynchronize());
+    const MPI_Datatype type = mpiType();
+    checkMpi(MPI_Allgatherv(localQx.data(), localBodies, type,
+                            globalQx.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(qx host staging)");
+    checkMpi(MPI_Allgatherv(localQy.data(), localBodies, type,
+                            globalQy.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(qy host staging)");
+    checkMpi(MPI_Allgatherv(localQz.data(), localBodies, type,
+                            globalQz.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(qz host staging)");
+    checkMpi(MPI_Allgatherv(localVx.data(), localBodies, type,
+                            globalVx.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(vx host staging)");
+    checkMpi(MPI_Allgatherv(localVy.data(), localBodies, type,
+                            globalVy.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(vy host staging)");
+    checkMpi(MPI_Allgatherv(localVz.data(), localBodies, type,
+                            globalVz.data(), counts.data(), displacements.data(), type,
+                            MPI_COMM_WORLD),
+             "MPI_Allgatherv(vz host staging)");
 
-    MPI_Datatype type = mpi_type();
-    
-    // 2. AllGather
-    MPI_Allgatherv(send_qx, count, type, devData.qx, counts.data(), displs.data(), type, MPI_COMM_WORLD);
-    MPI_Allgatherv(send_qy, count, type, devData.qy, counts.data(), displs.data(), type, MPI_COMM_WORLD);
-    MPI_Allgatherv(send_qz, count, type, devData.qz, counts.data(), displs.data(), type, MPI_COMM_WORLD);
-    MPI_Allgatherv(send_vx, count, type, devData.vx, counts.data(), displs.data(), type, MPI_COMM_WORLD);
-    MPI_Allgatherv(send_vy, count, type, devData.vy, counts.data(), displs.data(), type, MPI_COMM_WORLD);
-    MPI_Allgatherv(send_vz, count, type, devData.vz, counts.data(), displs.data(), type, MPI_COMM_WORLD);
+    CUDA_CHECK(cudaMemcpy(deviceData.qx, globalQx.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(deviceData.qy, globalQy.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(deviceData.qz, globalQz.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(deviceData.vx, globalVx.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(deviceData.vy, globalVy.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(deviceData.vz, globalVz.data(), globalBytes,
+                          cudaMemcpyHostToDevice));
+    cudaBodies->invalidateDataSoA();
 }
 
 template <typename T>
 void SimulationNBodyMultiNodeCUDA<T>::computeOneIteration() {
-    int total_n = (int)this->bodies->getN();
-    int local_n = counts[rank];
-    int offset = displs[rank];
+    const int totalBodies = static_cast<int>(this->getBodies()->getN());
+    const int localBodies = counts[static_cast<std::size_t>(rank)];
+    const int localOffset = displacements[static_cast<std::size_t>(rank)];
 
-    if (local_n > 0) {
-        devComputeBodiesAccelerationMPI<T><<<this->_num_blocks, this->_num_threads>>>(
-            this->devAccelerations, this->cudaBodiesPtr->getDevDataSoA(), this->devGM,
-            total_n, offset, local_n, this->softSquared
-        );
+    if (localBodies > 0) {
+        devComputeBodiesAccelerationMPI<T><<<blockCount, threadsPerBlock>>>(
+            deviceAccelerations, cudaBodies->getDevDataSoA(), deviceGM,
+            totalBodies, localOffset, localBodies, softSquared);
         CUDA_CHECK(cudaGetLastError());
 
-        int update_blocks = (local_n + 255) / 256;
-        devUpdateKinematicsMPI<T><<<update_blocks, 256>>>(
-            this->cudaBodiesPtr->getDevDataSoA(), this->devAccelerations, this->dt, offset, local_n
-        );
+        const int updateBlocks = (localBodies + threadsPerBlock - 1) / threadsPerBlock;
+        devUpdateKinematicsMPI<T><<<updateBlocks, threadsPerBlock>>>(
+            cudaBodies->getDevDataSoA(), deviceAccelerations, this->dt,
+            localOffset, localBodies);
         CUDA_CHECK(cudaGetLastError());
     }
 
-    syncStateMPI();
+    synchronizeGlobalState();
 }
 
 template <typename T>
 SimulationNBodyMultiNodeCUDA<T>::~SimulationNBodyMultiNodeCUDA() {
-    cudaFree(devAccelerations.x); cudaFree(devAccelerations.y); cudaFree(devAccelerations.z);
-    cudaFree(devGM);
-    
-    if (send_qx) {
-        cudaFree(send_qx); cudaFree(send_qy); cudaFree(send_qz);
-        cudaFree(send_vx); cudaFree(send_vy); cudaFree(send_vz);
-    }
+    cudaFree(deviceAccelerations.x);
+    cudaFree(deviceAccelerations.y);
+    cudaFree(deviceAccelerations.z);
+    cudaFree(deviceGM);
 }
 
 template class SimulationNBodyMultiNodeCUDA<float>;

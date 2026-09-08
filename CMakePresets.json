@@ -33,6 +33,14 @@
       }
     },
     {
+      "name": "leonardo-multi",
+      "inherits": "leonardo",
+      "description": "Build for one Leonardo Booster node with four A100 GPUs",
+      "cacheVariables": {
+        "ENABLE_MURB_MPI": "ON"
+      }
+    },
+    {
       "name": "generic",
       "inherits": "base",
       "description": "Build generica Linux CPU-only",

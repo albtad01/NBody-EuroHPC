@@ -1,47 +1,48 @@
 #ifndef SIMULATION_N_BODY_MULTINODE_CUDA_HPP_
 #define SIMULATION_N_BODY_MULTINODE_CUDA_HPP_
 
-#ifdef USE_CUDA
+#if defined(USE_CUDA) && defined(USE_MPI)
 
-#include "core/SimulationNBodyInterface.hpp"
-#include "core/CUDABodies.hpp"
 #include <mpi.h>
-#include <vector>
+
 #include <memory>
+#include <vector>
+
+#include "core/CUDABodies.hpp"
+#include "core/SimulationNBodyInterface.hpp"
 
 template <typename T>
 class SimulationNBodyMultiNodeCUDA : public SimulationNBodyInterface<T> {
-protected:
-    int rank, size;
+  public:
+    SimulationNBodyMultiNodeCUDA(const BodiesAllocatorInterface<T>& allocator, T soft);
+    ~SimulationNBodyMultiNodeCUDA() override;
+
+    void computeOneIteration() override;
+
+  private:
+    static MPI_Datatype mpiType();
+    void buildCountsAndDisplacements(int bodyCount);
+    void synchronizeGlobalState();
+
+    int rank = 0;
+    int size = 1;
     std::vector<int> counts;
-    std::vector<int> displs;
+    std::vector<int> displacements;
 
-    std::shared_ptr<CUDABodies<T>> cudaBodiesPtr;
+    std::shared_ptr<CUDABodies<T>> cudaBodies;
+    devAccSoA_t<T> deviceAccelerations{};
+    T* deviceGM = nullptr;
+    T softSquared;
 
-    // Buffer Device
-    devAccSoA_t<T> devAccelerations;
-    T* devGM;
-    T softSquared; // Variabile aggiunta per evitare l'errore di compilazione
+    std::vector<T> localQx, localQy, localQz;
+    std::vector<T> localVx, localVy, localVz;
+    std::vector<T> globalQx, globalQy, globalQz;
+    std::vector<T> globalVx, globalVy, globalVz;
 
-    // Send Buffers per isolare la memoria ed evitare Buffer Aliasing (CUDA Error 700)
-    T *send_qx, *send_qy, *send_qz;
-    T *send_vx, *send_vy, *send_vz;
-
-    int _num_threads;
-    int _elem_per_thread;
-    int _num_blocks;
-
-    MPI_Datatype mpi_type();
-    void initMPI_and_GPU();
-    void buildCountsDispls(int n);
-    void syncStateMPI();
-
-public:
-    SimulationNBodyMultiNodeCUDA(const BodiesAllocatorInterface<T>& allocator, const T soft);
-    virtual ~SimulationNBodyMultiNodeCUDA();
-
-    virtual void computeOneIteration() override;
+    int threadsPerBlock = 256;
+    int elementsPerThread = 4;
+    int blockCount = 0;
 };
 
-#endif // USE_CUDA
-#endif // SIMULATION_N_BODY_MULTINODE_CUDA_HPP_
+#endif
+#endif

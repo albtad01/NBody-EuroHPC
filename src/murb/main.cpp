@@ -32,6 +32,10 @@
 #include "implem/SimulationNBodyCUDATile.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice.hpp"
 #include "implem/SimulationNBodyCUDATileFullDevice200k.hpp"
+#ifdef USE_MPI
+#include "implem/MultiGpuRuntime.hpp"
+#include "implem/SimulationNBodyMultiNodeCUDA.hpp"
+#endif
 #endif
 
 /* global variables */
@@ -53,10 +57,24 @@ unsigned long RecordEvery = 1;        /*!< Timed-iteration sampling stride. */
 std::string ReplayPath;               /*!< Optional trajectory input path. */
 double ReplayFps = 0.0;               /*!< Optional graphical replay rate; zero is unpaced. */
 bool ReplayLoop = false;              /*!< Restart replay after the final frame. */
+#ifdef USE_MPI
+int MpiWorldRank = 0;
+int MpiWorldSize = 1;
+#endif
+
+bool isMultiGpuBackend() { return ImplTag == "gpu+multinode"; }
+
+bool isPrimaryRank() {
+#ifdef USE_MPI
+    return !isMultiGpuBackend() || MpiWorldRank == 0;
+#else
+    return true;
+#endif
+}
 
 bool isCudaBackend() {
     return ImplTag == "gpu+tile" || ImplTag == "gpu+tile+full" ||
-           ImplTag == "gpu+tile+full200k";
+           ImplTag == "gpu+tile+full200k" || isMultiGpuBackend();
 }
 
 void printVersion() {
@@ -76,6 +94,11 @@ void printVersion() {
 #else
               << " visu=0"
 #endif
+#ifdef USE_MPI
+              << " mpi=1"
+#else
+              << " mpi=0"
+#endif
               << '\n';
 }
 
@@ -85,6 +108,7 @@ void printUsage() {
               << "  murb --replay FILE.murbtraj [--visu] [--replay-fps FPS] [--loop] [--nv] [-v]\n"
               << "CPU backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp.\n"
               << "CUDA backends: gpu+tile, gpu+tile+full.\n"
+              << "Four-GPU backend (MPI build only): gpu+multinode.\n"
               << "Experimental CUDA backend: gpu+tile+full200k.\n"
               << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help, --version.\n"
               << "Recording is opt-in and replay never runs a simulation backend.\n";
@@ -190,7 +214,8 @@ void argsReader(int argc, char **argv) {
         throw std::invalid_argument("--scheme must be galaxy or random");
     if (ImplTag != "cpu+naive" && ImplTag != "cpu+optim" && ImplTag != "cpu+simd" &&
         ImplTag != "cpu+omp" && ImplTag != "gpu+tile" &&
-        ImplTag != "gpu+tile+full" && ImplTag != "gpu+tile+full200k")
+        ImplTag != "gpu+tile+full" && ImplTag != "gpu+tile+full200k" &&
+        ImplTag != "gpu+multinode")
         throw std::invalid_argument("unsupported exploratory backend: " + ImplTag);
 #ifndef USE_CUDA
     if (isCudaBackend())
@@ -200,6 +225,12 @@ void argsReader(int argc, char **argv) {
     if (ImplTag == "cpu+omp")
         throw std::invalid_argument("cpu+omp requires an OpenMP build");
 #endif
+#ifndef USE_MPI
+    if (isMultiGpuBackend())
+        throw std::invalid_argument("gpu+multinode requires an MPI-enabled CUDA build");
+#endif
+    if (isMultiGpuBackend() && VisuEnable)
+        throw std::invalid_argument("gpu+multinode supports headless execution only");
 }
 
 template <typename T>
@@ -219,6 +250,12 @@ SimulationNBodyInterface<T> *createImplem() {
         CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
         return new SimulationNBodyCUDATileFullDevice200k<T>(cudaAllocator, Softening, false);
     }
+#ifdef USE_MPI
+    if (ImplTag == "gpu+multinode") {
+        CUDABodiesAllocator<T> cudaAllocator(NBodies, BodiesScheme);
+        return new SimulationNBodyMultiNodeCUDA<T>(cudaAllocator, Softening);
+    }
+#endif
 #endif
     throw std::invalid_argument("unsupported or unavailable exploratory backend: " + ImplTag);
 }
@@ -324,12 +361,11 @@ int runReplay() {
     return EXIT_SUCCESS;
 }
 
-int runSimulation(int argc, char **argv) {
-    argsReader(argc, argv);
-    printVersion();
+int runSimulation() {
+    if (isPrimaryRank()) printVersion();
     if (!ReplayPath.empty()) return runReplay();
 #ifdef USE_CUDA
-    if (isCudaBackend()) initializeCudaDevice();
+    if (isCudaBackend() && !isMultiGpuBackend()) initializeCudaDevice();
 #endif
 
     std::unique_ptr<SimulationNBodyInterface<float>> simu(createImplem<float>());
@@ -337,14 +373,19 @@ int runSimulation(int argc, char **argv) {
     std::unique_ptr<SpheresVisu> visu(createVisu<float>(simu.get()));
     simu->setDt(Dt);
 
-    std::cout << "backend=" << ImplTag << " bodies=" << NBodies
+    if (isPrimaryRank()) std::cout << "backend=" << ImplTag << " bodies=" << NBodies
               << " iterations=" << NIterations << " warmup_iterations=" << NWarmup
               << " dt=" << std::setprecision(9) << Dt
               << " softening=" << Softening << " scheme=" << BodiesScheme
               << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off")
               << " recording=" << (RecordPath.empty() ? "off" : RecordPath);
-    if (!RecordPath.empty()) std::cout << " record_every=" << RecordEvery;
-    std::cout << '\n';
+    if (isPrimaryRank()) {
+        if (!RecordPath.empty()) std::cout << " record_every=" << RecordEvery;
+#ifdef USE_MPI
+        if (isMultiGpuBackend()) std::cout << " mpi_ranks=" << MpiWorldSize;
+#endif
+        std::cout << '\n';
+    }
 
     for (unsigned long warmup = 0; warmup < NWarmup; ++warmup) {
         simu->computeOneIteration();
@@ -362,7 +403,7 @@ int runSimulation(int argc, char **argv) {
 #endif
 
     std::unique_ptr<murb::TrajectoryWriter> recorder;
-    if (!RecordPath.empty()) {
+    if (!RecordPath.empty() && isPrimaryRank()) {
         const auto& data = simu->getBodies()->getDataSoA();
         std::vector<float> radii(data.r.begin(), data.r.begin() + NBodies);
         recorder = std::make_unique<murb::TrajectoryWriter>(
@@ -391,7 +432,8 @@ int runSimulation(int argc, char **argv) {
             simu->getBodies()->getDataSoA();
             visu->refreshDisplay();
         }
-        if (Verbose && (completed == 1 || completed % 10 == 0 || completed == NIterations))
+        if (Verbose && isPrimaryRank() &&
+            (completed == 1 || completed % 10 == 0 || completed == NIterations))
             std::cout << "completed=" << completed << '/' << NIterations << '\n';
     }
     wall.stop();
@@ -401,24 +443,42 @@ int runSimulation(int argc, char **argv) {
     const double computeMs = perfTotal.getElapsedTime();
     const double averageMs = completed > 0 ? computeMs / completed : 0.0;
     const double rate = computeMs > 0 ? interactions * 1000.0 / computeMs : 0.0;
-    std::cout << std::setprecision(9)
+    if (isPrimaryRank()) std::cout << std::setprecision(9)
               << "completed_iterations=" << completed
               << " compute_ms=" << computeMs
               << " average_ms_per_iteration=" << averageMs
               << " loop_wall_ms=" << wall.getElapsedTime()
               << " interactions_per_second=" << rate;
-    if (ShowGFlops)
+    if (isPrimaryRank() && ShowGFlops)
         std::cout << " estimated_GFLOP_per_second=" << rate * 20.0 / 1e9;
-    if (recorder)
+    if (isPrimaryRank() && recorder)
         std::cout << " recorded_frames=" << recordedFrames << " trajectory=" << RecordPath;
-    std::cout << '\n';
-    if (computeMs <= 0) std::cout << "Timing below clock resolution; rates reported as zero.\n";
+    if (isPrimaryRank()) {
+        std::cout << '\n';
+        if (computeMs <= 0)
+            std::cout << "Timing below clock resolution; rates reported as zero.\n";
+    }
     return EXIT_SUCCESS;
 }
 
 int main(int argc, char **argv) {
     try {
-        return runSimulation(argc, argv);
+        argsReader(argc, argv);
+#ifdef USE_MPI
+        if (isMultiGpuBackend()) {
+            murb::MultiGpuRuntime runtime(argc, argv, true, Verbose);
+            MpiWorldRank = runtime.info().worldRank;
+            MpiWorldSize = runtime.info().worldSize;
+            try {
+                const int result = runSimulation();
+                runtime.finalize();
+                return result;
+            } catch (...) {
+                runtime.abort(EXIT_FAILURE);
+            }
+        }
+#endif
+        return runSimulation();
     } catch (const std::exception& error) {
         std::cerr << "murb: " << error.what() << '\n';
         return EXIT_FAILURE;
