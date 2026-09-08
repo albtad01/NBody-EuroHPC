@@ -84,7 +84,7 @@ each source commit before submitting.
 The Phase 1 syntax is:
 
 ```text
-murb -n BODIES -i ITERATIONS --im BACKEND [--nv] [--gf] [--dt SECONDS]
+murb -n BODIES -i ITERATIONS --im BACKEND [--warmup ITERATIONS] [--nv] [--gf] [--dt SECONDS]
 ```
 
 Options used by the demo are:
@@ -97,6 +97,8 @@ Options used by the demo are:
 - `--gf`: report an estimated GFLOP/s value using 20 operations per
   interaction.
 - `--dt`: finite, positive time step in seconds.
+- `--warmup`: optional positive number of untimed iterations performed in the
+  same process before measurement.
 
 `--scheme galaxy|random`, `-v`, `--help`, and `--version` are also accepted.
 Unknown, duplicate, missing, and invalid options cause a clear nonzero exit.

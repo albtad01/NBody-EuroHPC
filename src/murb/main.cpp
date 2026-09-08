@@ -33,7 +33,8 @@
 
 /* global variables */
 unsigned long NBodies;               /*!< Number of bodies. */
-unsigned long NIterations;           /*!< Number of iterations. */
+unsigned long NIterations;           /*!< Number of timed iterations. */
+unsigned long NWarmup = 0;              /*!< Number of untimed warm-up iterations. */
 std::string ImplTag = "cpu+naive";   /*!< Implementation id. */
 bool Verbose = false;                /*!< Mode verbose. */
 bool VisuEnable = false;              /*!< Enable visualization. */
@@ -71,7 +72,7 @@ void printVersion() {
 }
 
 void printUsage() {
-    std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
+    std::cout << "Usage: murb -n BODIES -i ITERATIONS [--warmup ITERATIONS] [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
               << "CPU backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp.\n"
               << "CUDA backends: gpu+tile, gpu+tile+full.\n"
               << "Experimental CUDA backend: gpu+tile+full200k.\n"
@@ -112,6 +113,7 @@ void argsReader(int argc, char **argv) {
         if (option == "-n") NBodies = positiveCount(value(), option);
         else if (option == "-i") NIterations = positiveCount(value(), option);
         else if (option == "--im") ImplTag = value();
+        else if (option == "--warmup") NWarmup = positiveCount(value(), option);
         else if (option == "--dt") {
             const std::string input = value();
             std::size_t consumed = 0;
@@ -232,16 +234,25 @@ int runSimulation(int argc, char **argv) {
     simu->setDt(Dt);
 
     std::cout << "backend=" << ImplTag << " bodies=" << NBodies
-              << " iterations=" << NIterations << " dt=" << std::setprecision(9) << Dt
+              << " iterations=" << NIterations << " warmup_iterations=" << NWarmup
+              << " dt=" << std::setprecision(9) << Dt
               << " softening=" << Softening << " scheme=" << BodiesScheme
               << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off")
               << " recording=off\n";
+
+    for (unsigned long warmup = 0; warmup < NWarmup; ++warmup) {
+        simu->computeOneIteration();
+#ifdef USE_CUDA
+        if (isCudaBackend())
+            checkCuda(cudaGetLastError(), "CUDA warm-up launch");
+#endif
+    }
 
     Perf perfIte, perfTotal, wall;
     unsigned long completed = 0;
 #ifdef USE_CUDA
     if (isCudaBackend())
-        checkCuda(cudaDeviceSynchronize(), "CUDA completion before timing");
+        checkCuda(cudaDeviceSynchronize(), "CUDA warm-up completion");
 #endif
     wall.start();
     while (completed < NIterations && !visu->windowShouldClose()) {
