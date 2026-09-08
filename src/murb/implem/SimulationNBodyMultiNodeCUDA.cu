@@ -191,11 +191,11 @@ SimulationNBodyMultiNodeCUDA<T>::SimulationNBodyMultiNodeCUDA(
     const BodiesAllocatorInterface<T>& allocator, T soft)
     : SimulationNBodyInterface<T>(allocator, soft), softSquared(soft * soft) {
     int initialized = 0;
-    checkMpi(MPI_Initialized(&initialized), "MPI_Initialized");
+    murb::checkMpi(MPI_Initialized(&initialized), "MPI_Initialized");
     if (!initialized)
         throw std::logic_error("gpu+multinode requires MPI_Init before construction");
-    checkMpi(MPI_Comm_rank(MPI_COMM_WORLD, &rank), "MPI_Comm_rank");
-    checkMpi(MPI_Comm_size(MPI_COMM_WORLD, &size), "MPI_Comm_size");
+    murb::checkMpi(MPI_Comm_rank(MPI_COMM_WORLD, &rank), "MPI_Comm_rank");
+    murb::checkMpi(MPI_Comm_size(MPI_COMM_WORLD, &size), "MPI_Comm_size");
 
     const auto bodyCount = this->getBodies()->getN();
     if (bodyCount == 0 ||
@@ -262,27 +262,27 @@ void SimulationNBodyMultiNodeCUDA<T>::synchronizeGlobalState() {
     }
 
     const MPI_Datatype type = mpiType();
-    checkMpi(MPI_Allgatherv(localQx.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localQx.data(), localBodies, type,
                             globalQx.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(qx host staging)");
-    checkMpi(MPI_Allgatherv(localQy.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localQy.data(), localBodies, type,
                             globalQy.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(qy host staging)");
-    checkMpi(MPI_Allgatherv(localQz.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localQz.data(), localBodies, type,
                             globalQz.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(qz host staging)");
-    checkMpi(MPI_Allgatherv(localVx.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localVx.data(), localBodies, type,
                             globalVx.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(vx host staging)");
-    checkMpi(MPI_Allgatherv(localVy.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localVy.data(), localBodies, type,
                             globalVy.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(vy host staging)");
-    checkMpi(MPI_Allgatherv(localVz.data(), localBodies, type,
+    murb::checkMpi(MPI_Allgatherv(localVz.data(), localBodies, type,
                             globalVz.data(), counts.data(), displacements.data(), type,
                             MPI_COMM_WORLD),
              "MPI_Allgatherv(vz host staging)");
