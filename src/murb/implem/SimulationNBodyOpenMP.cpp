@@ -144,10 +144,12 @@ void SimulationNBodyOpenMP<T>::computeBodiesAcceleration()
 
             for (; j < n_vec_u; j += step) {
                 const long pf = j + (long)MURB_OMP_PREFETCH_AHEAD * (long)V;
-                __builtin_prefetch(qx + pf, 0, 1);
-                __builtin_prefetch(qy + pf, 0, 1);
-                __builtin_prefetch(qz + pf, 0, 1);
-                __builtin_prefetch(m  + pf, 0, 1);
+                if (pf < n) {
+                    __builtin_prefetch(qx + pf, 0, 1);
+                    __builtin_prefetch(qy + pf, 0, 1);
+                    __builtin_prefetch(qz + pf, 0, 1);
+                    __builtin_prefetch(m  + pf, 0, 1);
+                }
 
 #pragma unroll
                 for (int u = 0; u < UNROLL; ++u) {

@@ -72,10 +72,11 @@ void printVersion() {
 
 void printUsage() {
     std::cout << "Usage: murb -n BODIES -i ITERATIONS [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
-              << "Exploratory backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp, "
-                 "gpu+tile, gpu+tile+full, gpu+tile+full200k (CUDA build only).\n"
+              << "CPU backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp.\n"
+              << "CUDA backends: gpu+tile, gpu+tile+full.\n"
+              << "Experimental CUDA backend: gpu+tile+full200k.\n"
               << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help, --version.\n"
-              << "Recording, bin+player and other backends are deferred.\n";
+              << "All other backends, recording, and bin+player are deferred.\n";
 }
 
 unsigned long positiveCount(const std::string& value, const std::string& option) {
@@ -134,7 +135,7 @@ void argsReader(int argc, char **argv) {
         throw std::invalid_argument("--visu requires a build with OpenGL visualization enabled");
 #endif
     if (BodiesScheme != "galaxy" && BodiesScheme != "random")
-        throw std::invalid_argument("--scheme must be galaxy or random in Phase 1");
+        throw std::invalid_argument("--scheme must be galaxy or random");
     if (ImplTag != "cpu+naive" && ImplTag != "cpu+optim" && ImplTag != "cpu+simd" &&
         ImplTag != "cpu+omp" && ImplTag != "gpu+tile" &&
         ImplTag != "gpu+tile+full" && ImplTag != "gpu+tile+full200k")
@@ -205,7 +206,7 @@ void checkCuda(cudaError_t result, const char* operation) {
 void initializeCudaDevice() {
     int count = 0;
     checkCuda(cudaGetDeviceCount(&count), "cudaGetDeviceCount");
-    if (count < 1) throw std::runtime_error("gpu+tile+full requires a visible CUDA GPU");
+    if (count < 1) throw std::runtime_error(ImplTag + " requires a visible CUDA GPU");
     // Phase 1 selects the first visible device; Slurm assigns one GPU to the task.
     // This must precede construction of any CUDA allocator or simulation object.
     checkCuda(cudaSetDevice(0), "cudaSetDevice(0)");
@@ -267,10 +268,12 @@ int runSimulation(int argc, char **argv) {
     wall.stop();
     const double interactions = static_cast<double>(NBodies) * NBodies * completed;
     const double computeMs = perfTotal.getElapsedTime();
+    const double averageMs = completed > 0 ? computeMs / completed : 0.0;
     const double rate = computeMs > 0 ? interactions * 1000.0 / computeMs : 0.0;
     std::cout << std::setprecision(9)
               << "completed_iterations=" << completed
               << " compute_ms=" << computeMs
+              << " average_ms_per_iteration=" << averageMs
               << " loop_wall_ms=" << wall.getElapsedTime()
               << " interactions_per_second=" << rate;
     if (ShowGFlops)

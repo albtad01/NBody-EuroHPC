@@ -20,6 +20,7 @@
 #endif
 
 enum class Backend {
+    CpuNaive,
     CpuOptim,
     CpuSimd,
     CpuOmp,
@@ -32,6 +33,7 @@ enum class Backend {
 
 const char* backendName(Backend backend) {
     switch (backend) {
+        case Backend::CpuNaive: return "cpu+naive";
         case Backend::CpuOptim: return "cpu+optim";
         case Backend::CpuSimd: return "cpu+simd";
         case Backend::CpuOmp: return "cpu+omp";
@@ -49,6 +51,8 @@ std::unique_ptr<SimulationNBodyInterface<float>> makeTarget(
 {
     BodiesAllocator<float> hostAllocator(n, scheme);
     switch (backend) {
+        case Backend::CpuNaive:
+            return std::make_unique<SimulationNBodyNaive<float>>(hostAllocator, soft);
         case Backend::CpuOptim:
             return std::make_unique<SimulationNBodyOptim<float>>(hostAllocator, soft);
         case Backend::CpuSimd:
@@ -113,6 +117,10 @@ void testBackend(Backend backend) {
     testNBodyCorrectness(backend, 2049, 2e+08f, 3600, 3, "random", 1e-3f);
     testNBodyCorrectness(backend, 2048, 2e+08f, 3600, 4, "galaxy", 1e-1f);
     testNBodyCorrectness(backend, 2049, 2e+08f, 3600, 3, "galaxy", 1e-1f);
+}
+
+TEST_CASE("cpu+naive is deterministic", "[correctness][cpu-naive]") {
+    testBackend(Backend::CpuNaive);
 }
 
 TEST_CASE("cpu+optim matches cpu+naive", "[correctness][cpu-optim]") {
