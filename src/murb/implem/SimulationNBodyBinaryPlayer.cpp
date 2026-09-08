@@ -42,6 +42,11 @@ bool SimulationNBodyBinaryPlayer<T>::readNextFrame() {
 }
 
 template <typename T>
+void SimulationNBodyBinaryPlayer<T>::restart() {
+    reader.rewind();
+}
+
+template <typename T>
 const murb::TrajectoryMetadata& SimulationNBodyBinaryPlayer<T>::getMetadata() const {
     return reader.getMetadata();
 }

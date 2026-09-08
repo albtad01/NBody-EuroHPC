@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -5,6 +6,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <memory>
 
 #include "ogl/SpheresVisu.hpp"
@@ -49,6 +51,8 @@ bool ShowGFlops = false;             /*!< Display the GFlop/s. */
 std::string RecordPath;               /*!< Optional trajectory output path. */
 unsigned long RecordEvery = 1;        /*!< Timed-iteration sampling stride. */
 std::string ReplayPath;               /*!< Optional trajectory input path. */
+double ReplayFps = 0.0;               /*!< Optional graphical replay rate; zero is unpaced. */
+bool ReplayLoop = false;              /*!< Restart replay after the final frame. */
 
 bool isCudaBackend() {
     return ImplTag == "gpu+tile" || ImplTag == "gpu+tile+full" ||
@@ -78,7 +82,7 @@ void printVersion() {
 void printUsage() {
     std::cout << "Usage:\n"
               << "  murb -n BODIES -i ITERATIONS [--warmup ITERATIONS] [--im BACKEND] [--record FILE.murbtraj] [--record-every K] [--nv] [--gf] [--dt SECONDS]\n"
-              << "  murb --replay FILE.murbtraj [--visu] [--nv] [-v]\n"
+              << "  murb --replay FILE.murbtraj [--visu] [--replay-fps FPS] [--loop] [--nv] [-v]\n"
               << "CPU backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp.\n"
               << "CUDA backends: gpu+tile, gpu+tile+full.\n"
               << "Experimental CUDA backend: gpu+tile+full200k.\n"
@@ -101,6 +105,14 @@ unsigned long positiveCount(const std::string& value, const std::string& option)
     if (count == 0 || count > static_cast<unsigned long>(std::numeric_limits<int>::max() - 1024))
         throw std::invalid_argument(option + " is outside the supported positive integer range");
     return static_cast<unsigned long>(count);
+}
+
+double positiveRate(const std::string& value, const std::string& option) {
+    std::size_t consumed = 0;
+    const double rate = std::stod(value, &consumed);
+    if (consumed != value.size() || !std::isfinite(rate) || rate <= 0)
+        throw std::invalid_argument(option + " requires a finite positive number");
+    return rate;
 }
 
 void argsReader(int argc, char **argv) {
@@ -142,6 +154,8 @@ void argsReader(int argc, char **argv) {
         else if (option == "--record") RecordPath = value();
         else if (option == "--record-every") RecordEvery = positiveCount(value(), option);
         else if (option == "--replay") ReplayPath = value();
+        else if (option == "--replay-fps") ReplayFps = positiveRate(value(), option);
+        else if (option == "--loop") ReplayLoop = true;
         else throw std::invalid_argument("unknown option: " + option + " (see --help)");
     }
     if (seen.count("--nv") && seen.count("--visu"))
@@ -164,6 +178,10 @@ void argsReader(int argc, char **argv) {
 
     if (!seen.count("-n") || !seen.count("-i"))
         throw std::invalid_argument("both -n and -i are required (see --help)");
+    if (seen.count("--replay-fps"))
+        throw std::invalid_argument("--replay-fps requires --replay");
+    if (seen.count("--loop"))
+        throw std::invalid_argument("--loop requires --replay");
     if (seen.count("--record-every") && RecordPath.empty())
         throw std::invalid_argument("--record-every requires --record");
     if (!RecordPath.empty() && !hasTrajectoryExtension(RecordPath))
@@ -257,16 +275,47 @@ int runReplay() {
     NBodies = replayBodies;
     std::unique_ptr<SpheresVisu> visu(createVisu<float>(&player));
     const auto& metadata = player.getMetadata();
+    const bool paced = VisuEnable && ReplayFps > 0.0;
 
     std::cout << "replay=" << ReplayPath << " bodies=" << metadata.bodyCount
               << " frames=" << metadata.frameCount << " stride=" << metadata.recordingStride
               << " dt=" << std::setprecision(17) << metadata.timestep
               << " backend=" << metadata.backend << " source_revision=" << metadata.sourceCommit
-              << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off") << '\n';
+              << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off")
+              << " loop=" << (ReplayLoop ? "on" : "off");
+    if (ReplayFps == 0.0)
+        std::cout << " replay_fps=unpaced";
+    else if (paced)
+        std::cout << " replay_fps=" << ReplayFps;
+    else
+        std::cout << " replay_fps=ignored(headless)";
+    std::cout << '\n';
 
     std::uint64_t displayed = 0;
-    while (!visu->windowShouldClose() && player.readNextFrame()) {
+    bool presentedFrame = false;
+    auto nextPresentation = std::chrono::steady_clock::now();
+    auto framePeriod = std::chrono::steady_clock::duration::zero();
+    if (paced) {
+        framePeriod = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(1.0 / ReplayFps));
+        if (framePeriod <= std::chrono::steady_clock::duration::zero())
+            framePeriod = std::chrono::steady_clock::duration{1};
+    }
+
+    while (!visu->windowShouldClose()) {
+        if (!player.readNextFrame()) {
+            if (!ReplayLoop || metadata.frameCount == 0) break;
+            player.restart();
+            continue;
+        }
+        if (paced && presentedFrame) {
+            nextPresentation += framePeriod;
+            std::this_thread::sleep_until(nextPresentation);
+        } else if (paced) {
+            nextPresentation = std::chrono::steady_clock::now();
+        }
         visu->refreshDisplay();
+        presentedFrame = true;
         ++displayed;
         if (Verbose)
             std::cout << "replayed_frame=" << displayed << '/' << metadata.frameCount << '\n';

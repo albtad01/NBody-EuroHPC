@@ -242,6 +242,8 @@ TrajectoryReader::TrajectoryReader(const std::string& path) : in(path, std::ios:
     in.read(metadata.sourceCommit.data(), static_cast<std::streamsize>(commitBytes));
     failIf(in.gcount() != static_cast<std::streamsize>(commitBytes), "truncated source commit");
     readFloatArray(in, metadata.radii, metadata.bodyCount, "radii");
+    frameDataOffset = in.tellg();
+    failIf(frameDataOffset == std::streampos{-1}, "cannot locate first frame");
 
     const auto valuesPerFrame = checkedMultiply(metadata.bodyCount, std::uint64_t{6}, "frame");
     auto frameBytes = checkedMultiply(valuesPerFrame, sizeof(float), "frame");
@@ -270,6 +272,13 @@ bool TrajectoryReader::readNextFrame(TrajectoryFrame& frame) {
     frame = std::move(next);
     ++framesRead;
     return true;
+}
+
+void TrajectoryReader::rewind() {
+    in.clear();
+    in.seekg(frameDataOffset);
+    failIf(!in, "cannot rewind to first frame");
+    framesRead = 0;
 }
 
 } // namespace murb

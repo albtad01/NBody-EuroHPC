@@ -18,6 +18,7 @@ public:
 
     virtual void computeOneIteration() override;
     bool readNextFrame();
+    void restart();
     const murb::TrajectoryMetadata& getMetadata() const;
 };
 

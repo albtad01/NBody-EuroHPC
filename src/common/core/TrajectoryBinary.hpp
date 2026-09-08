@@ -73,11 +73,13 @@ class TrajectoryReader {
 
     const TrajectoryMetadata& getMetadata() const;
     bool readNextFrame(TrajectoryFrame& frame);
+    void rewind();
 
   private:
     std::ifstream in;
     TrajectoryMetadata metadata;
     std::uint64_t framesRead = 0;
+    std::streampos frameDataOffset{};
 };
 
 } // namespace murb

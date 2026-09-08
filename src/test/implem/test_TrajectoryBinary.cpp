@@ -100,6 +100,25 @@ TEST_CASE("trajectory round trip preserves metadata and complete frames", "[traj
     REQUIRE_FALSE(reader.readNextFrame(second));
 }
 
+TEST_CASE("trajectory reader rewinds to the first complete frame", "[trajectory]") {
+    TemporaryTrajectory file("rewind");
+    writeSample(file.path);
+
+    murb::TrajectoryReader reader(file.path.string());
+    murb::TrajectoryFrame frame;
+    REQUIRE(reader.readNextFrame(frame));
+    REQUIRE(frame.iteration == 5);
+    REQUIRE(reader.readNextFrame(frame));
+    REQUIRE(frame.iteration == 10);
+    REQUIRE_FALSE(reader.readNextFrame(frame));
+
+    reader.rewind();
+    REQUIRE(reader.readNextFrame(frame));
+    REQUIRE(frame.iteration == 5);
+    REQUIRE((frame.qx == std::vector<float>{1.0f, 2.0f, 3.0f}));
+    REQUIRE((frame.vz == std::vector<float>{-7.0f, -8.0f, -9.0f}));
+}
+
 TEST_CASE("trajectory reader rejects wrong magic", "[trajectory]") {
     TemporaryTrajectory file("magic");
     writeSample(file.path);

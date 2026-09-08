@@ -47,5 +47,22 @@ endif()
 if (NOT replay_output MATCHES "replayed_frames=1")
     message(FATAL_ERROR "replay reported an unexpected frame count: ${replay_output}")
 endif()
+if (NOT replay_output MATCHES "replay_fps=unpaced")
+    message(FATAL_ERROR "default replay was unexpectedly paced: ${replay_output}")
+endif()
+
+execute_process(
+    COMMAND "${MURB_EXECUTABLE}" --replay "${trajectory}" --nv --replay-fps 5
+    WORKING_DIRECTORY "${TEST_DIRECTORY}"
+    RESULT_VARIABLE headless_pacing_result
+    OUTPUT_VARIABLE headless_pacing_output
+    ERROR_VARIABLE headless_pacing_error)
+if (NOT headless_pacing_result EQUAL 0)
+    message(FATAL_ERROR "headless pacing check failed: ${headless_pacing_error}")
+endif()
+if (NOT headless_pacing_output MATCHES "replayed_frames=1" OR
+    NOT headless_pacing_output MATCHES "replay_fps=ignored\\(headless\\)")
+    message(FATAL_ERROR "headless replay did not ignore pacing: ${headless_pacing_output}")
+endif()
 
 file(REMOVE "${trajectory}")

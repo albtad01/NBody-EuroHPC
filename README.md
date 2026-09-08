@@ -130,12 +130,15 @@ srun --nodes=1 --ntasks=1 --gpus-per-task=1 \
 Copy the completed file to the Mac, configure the `mac` preset, and replay it:
 
 ```bash
-./build-mac/bin/murb --replay /path/to/demo.murbtraj --visu
+./build-mac/bin/murb --replay /path/to/demo.murbtraj --visu --replay-fps 30
 ```
 
 Replay obtains the body and frame counts from the file; `-n`, `-i`, and
-`--im` are not used. A headless integrity pass is also available with `--nv`.
-The format is documented in [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md).
+`--im` are not used. Graphical replay remains unpaced by default for backward
+compatibility; `--replay-fps FPS` limits presentation to a positive rate, and
+`--loop` restarts at the first frame after EOF. Headless replay with `--nv`
+ignores pacing and remains suitable for a fast integrity pass. The format is
+documented in [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md).
 
 ## Run the Phase 1 jobs
 
