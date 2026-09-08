@@ -17,7 +17,6 @@ module purge
 module load profile/base
 module load gcc/12.2.0
 module load cuda/12.2
-module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
 
 ROOT="${MURB_ROOT:-${SLURM_SUBMIT_DIR:?Submit from the worktree root}}"
 BUILD="${MURB_BUILD_DIR:-$ROOT/build-leonardo}"

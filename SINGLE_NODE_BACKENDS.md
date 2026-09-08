@@ -38,7 +38,7 @@ were observed, and the worktree remained clean.
 | `gpu+leapfrog` | BROKEN | Not enabled | Not run | Not run | Different integrator | Low before event | Fix constructor wiring and storage; add invariant tests | Defer repair |
 | CPU MPI | DEFER | Not enabled | Not run | Not run | Low for this phase | Low for single-node demo | Centralize MPI lifecycle; add rank tests | Defer |
 | `bin+player` | DEFER | Not enabled | Not run | Not run | None for benchmark | Useful in Phase 1b | Define format and correct EOF behavior | Defer |
-| Barnes-Hut | DEFER | Absent | Not applicable | Not applicable | Algorithmic comparison | Low before event | No implementation in this commit | Do not reconstruct now |
+| Barnes-Hut | DEFER | Excluded | Not run | Not validated | None currently | Low before event | Source is a duplicate naive stub, not Barnes-Hut | Do not repair now |
 
 ## Small smoke measurements
 

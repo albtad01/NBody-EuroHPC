@@ -16,7 +16,7 @@ option (ENABLE_VISU      "Enable the OpenGL visualization"              ON )
 option (ENABLE_TEST      "Enable test program to validate MUrB kernels" ON )
 option (ENABLE_MURB_OMP  "Enable to compile the MUrB OMP executable"    ON )
 option (ENABLE_MURB_OCL  "Enable to compile the MUrB OCL executable"    OFF)
-option (ENABLE_MURB_CUDA "Enable to compile MUsB CUDA executable"       OFF)
+option (ENABLE_MURB_CUDA "Enable to compile the MUrB CUDA executable"  OFF)
 
 if (NOT ENABLE_MURB)
     set (ENABLE_TEST OFF)
@@ -51,8 +51,8 @@ endif ()
 # --- Part 1: Common Library ---
 file (GLOB_RECURSE source_common src/common/*.cpp src/common/*.hpp)
 if (ENABLE_MURB_CUDA)
-    file (GLOB_RECURSE source_common_cuda src/common/*.cu)
-    list (APPEND source_common ${source_common_cuda})
+    # Only CUDABodies is needed by the supported single-node CUDA backends.
+    list (APPEND source_common src/common/core/CUDABodies.cu)
 endif()
 
 add_library (common-lib OBJECT ${source_common})
@@ -60,10 +60,20 @@ list(APPEND murb_targets_list common-lib)
 
 # --- Part 2: MUrB Implementation ---
 if (ENABLE_MURB)
-    file (GLOB_RECURSE source_murb_implem_files src/murb/implem/*.cpp src/murb/implem/*.hpp)
+    # Keep the supported single-node build independent of deferred MPI,
+    # replay, tracking, leapfrog, heterogeneous, and experimental sources.
+    set (source_murb_implem_files
+        src/murb/implem/SimulationNBodyNaive.cpp
+        src/murb/implem/SimulationNBodyOptim.cpp
+        src/murb/implem/SimulationNBodySIMD.cpp
+        src/murb/implem/SimulationNBodyOpenMP.cpp
+    )
     if (ENABLE_MURB_CUDA)
-        file (GLOB_RECURSE source_cuda_files src/murb/implem/*.cu)
-        list (APPEND source_murb_implem_files ${source_cuda_files})
+        list (APPEND source_murb_implem_files
+            src/murb/implem/SimulationNBodyCUDATile.cu
+            src/murb/implem/SimulationNBodyCUDATileFullDevice.cu
+            src/murb/implem/SimulationNBodyCUDATileFullDevice200k.cu
+        )
     endif()
 
     add_library (murb-implem-lib OBJECT ${source_murb_implem_files})
@@ -76,11 +86,9 @@ if (ENABLE_MURB)
     target_compile_definitions(murb-bin PUBLIC NBODY_FLOAT)
 
     if (ENABLE_TEST)
+        # CUDA backend correctness is exercised by the supported C++ tests.
+        # Deferred GPU history/replay tests remain out of this target.
         file (GLOB_RECURSE source_test_files src/test/*.cpp src/test/*.hpp)
-        if (ENABLE_MURB_CUDA)
-            file (GLOB_RECURSE cuda_test_files src/test/*.cu)
-            list (APPEND source_test_files ${cuda_test_files})
-        endif()
         add_executable (test-bin $<TARGET_OBJECTS:common-lib> $<TARGET_OBJECTS:murb-implem-lib> ${source_test_files})
         set_target_properties (test-bin PROPERTIES OUTPUT_NAME murb-test)
         list(APPEND murb_targets_list test-bin)
@@ -166,17 +174,6 @@ if (ENABLE_MURB_OMP)
     if (OpenMP_FOUND)
         targets_link_libraries("${murb_targets_list}" PUBLIC OpenMP::OpenMP_CXX)
     endif ()
-endif()
-
-# MPI setup
-find_package(MPI REQUIRED COMPONENTS CXX)
-if (ENABLE_MURB)
-    # MPI implementations remain compiled, though unsupported by the Phase 1 CLI.
-    target_link_libraries(murb-implem-lib PUBLIC MPI::MPI_CXX)
-    target_link_libraries(murb-bin PRIVATE MPI::MPI_CXX)
-    if (ENABLE_TEST)
-        target_link_libraries(test-bin PRIVATE MPI::MPI_CXX)
-    endif()
 endif()
 
 # OpenCL support

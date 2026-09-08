@@ -20,8 +20,8 @@ not replace the three Phase 1 demo backends. Their validation status and known
 limits are recorded in [SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md).
 
 Multi-GPU execution, trajectory recording, and `bin+player` replay remain
-deferred. The exploration does not delete or substantially change those
-implementations.
+deferred. Their source files are preserved but excluded from the supported
+single-node build.
 
 Leonardo benchmark jobs are headless. A local build may still enable the
 existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
@@ -30,7 +30,6 @@ existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
 
 - CMake 3.21 or newer.
 - A C++20 compiler.
-- OpenMPI with C++ support.
 - OpenMP for `cpu+omp`.
 - CUDA 12 and compute capability 8.0 for the Leonardo A100 build.
 - OpenGL, GLEW, GLM, and GLFW only for an optional local visualization build.
@@ -48,7 +47,6 @@ For a headless CPU build:
 module purge
 module load profile/base
 module load gcc/12.2.0
-module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
 module load cmake/3.27.9
 cmake --preset generic
 cmake --build build-generic -j 32
@@ -61,7 +59,6 @@ module purge
 module load profile/base
 module load gcc/12.2.0
 module load cuda/12.2
-module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
 module load cmake/3.27.9
 cmake --preset leonardo
 cmake --build build-leonardo -j 32
