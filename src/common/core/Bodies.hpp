@@ -132,6 +132,12 @@ template <typename T> class Bodies {
      */
     virtual const std::vector<dataAoS_t<T>> &getDataAoS() const;
 
+    void setRadii(const std::vector<T>& radii);
+
+    void setPositionsAndVelocities(const std::vector<T>& qx, const std::vector<T>& qy,
+                                   const std::vector<T>& qz, const std::vector<T>& vx,
+                                   const std::vector<T>& vy, const std::vector<T>& vz);
+
     /*!
      *  \brief Allocated bytes getter.
      *

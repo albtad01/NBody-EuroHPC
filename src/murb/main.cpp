@@ -5,7 +5,6 @@
 #include <set>
 #include <stdexcept>
 #include <string>
-#include <fstream>
 #include <memory>
 
 #include "ogl/SpheresVisu.hpp"
@@ -16,6 +15,7 @@
 #endif
 
 #include "core/Bodies.hpp"
+#include "core/TrajectoryBinary.hpp"
 #include "utils/Perf.hpp"
 #include "BuildInfo.hpp"
 
@@ -23,6 +23,7 @@
 #include "implem/SimulationNBodyOpenMP.hpp"
 #include "implem/SimulationNBodyOptim.hpp"
 #include "implem/SimulationNBodySIMD.hpp"
+#include "implem/SimulationNBodyBinaryPlayer.hpp"
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -45,6 +46,9 @@ unsigned int WinWidth = 1024;        /*!< Window width for visualization. */
 unsigned int WinHeight = 768;        /*!< Window height for visualization. */
 std::string BodiesScheme = "galaxy"; /*!< Initial condition of the bodies. */
 bool ShowGFlops = false;             /*!< Display the GFlop/s. */
+std::string RecordPath;               /*!< Optional trajectory output path. */
+unsigned long RecordEvery = 1;        /*!< Timed-iteration sampling stride. */
+std::string ReplayPath;               /*!< Optional trajectory input path. */
 
 bool isCudaBackend() {
     return ImplTag == "gpu+tile" || ImplTag == "gpu+tile+full" ||
@@ -72,12 +76,21 @@ void printVersion() {
 }
 
 void printUsage() {
-    std::cout << "Usage: murb -n BODIES -i ITERATIONS [--warmup ITERATIONS] [--im BACKEND] [--nv] [--gf] [--dt SECONDS]\n"
+    std::cout << "Usage:\n"
+              << "  murb -n BODIES -i ITERATIONS [--warmup ITERATIONS] [--im BACKEND] [--record FILE.murbtraj] [--record-every K] [--nv] [--gf] [--dt SECONDS]\n"
+              << "  murb --replay FILE.murbtraj [--visu] [--nv] [-v]\n"
               << "CPU backends: cpu+naive, cpu+optim, cpu+simd, cpu+omp.\n"
               << "CUDA backends: gpu+tile, gpu+tile+full.\n"
               << "Experimental CUDA backend: gpu+tile+full200k.\n"
               << "Default: headless, no recording. Options: --visu (local OpenGL), --scheme galaxy|random, -v, --help, --version.\n"
-              << "All other backends, recording, and bin+player are deferred.\n";
+              << "Recording is opt-in and replay never runs a simulation backend.\n";
+}
+
+bool hasTrajectoryExtension(const std::string& path) {
+    constexpr const char* extension = ".murbtraj";
+    return path.size() >= std::char_traits<char>::length(extension) &&
+           path.compare(path.size() - std::char_traits<char>::length(extension),
+                        std::char_traits<char>::length(extension), extension) == 0;
 }
 
 unsigned long positiveCount(const std::string& value, const std::string& option) {
@@ -126,16 +139,35 @@ void argsReader(int argc, char **argv) {
         else if (option == "--gf") ShowGFlops = true;
         else if (option == "-v") Verbose = true;
         else if (option == "--scheme") BodiesScheme = value();
+        else if (option == "--record") RecordPath = value();
+        else if (option == "--record-every") RecordEvery = positiveCount(value(), option);
+        else if (option == "--replay") ReplayPath = value();
         else throw std::invalid_argument("unknown option: " + option + " (see --help)");
     }
-    if (!seen.count("-n") || !seen.count("-i"))
-        throw std::invalid_argument("both -n and -i are required (see --help)");
     if (seen.count("--nv") && seen.count("--visu"))
         throw std::invalid_argument("--nv and --visu are mutually exclusive");
 #ifndef VISU
     if (seen.count("--visu"))
         throw std::invalid_argument("--visu requires a build with OpenGL visualization enabled");
 #endif
+
+    if (!ReplayPath.empty()) {
+        if (!hasTrajectoryExtension(ReplayPath))
+            throw std::invalid_argument("--replay requires a .murbtraj file");
+        const char* simulationOnly[] = {"-n", "-i", "--im", "--warmup", "--dt", "--scheme",
+                                        "--gf", "--record", "--record-every"};
+        for (const char* option : simulationOnly)
+            if (seen.count(option))
+                throw std::invalid_argument(std::string(option) + " is not valid with --replay");
+        return;
+    }
+
+    if (!seen.count("-n") || !seen.count("-i"))
+        throw std::invalid_argument("both -n and -i are required (see --help)");
+    if (seen.count("--record-every") && RecordPath.empty())
+        throw std::invalid_argument("--record-every requires --record");
+    if (!RecordPath.empty() && !hasTrajectoryExtension(RecordPath))
+        throw std::invalid_argument("--record requires a .murbtraj output path");
     if (BodiesScheme != "galaxy" && BodiesScheme != "random")
         throw std::invalid_argument("--scheme must be galaxy or random");
     if (ImplTag != "cpu+naive" && ImplTag != "cpu+optim" && ImplTag != "cpu+simd" &&
@@ -190,15 +222,6 @@ SpheresVisu *createVisu(SimulationNBodyInterface<T> *simu) {
 #endif
 }
 
-template <typename T>
-// Preserved for Phase 1b; the Phase 1 runner never opens a trajectory file.
-void exportBinaryFrame(std::ofstream &outFile, SimulationNBodyInterface<T> *simu, unsigned long NBodies) {
-    const dataSoA_t<T>& data = simu->getBodies()->getDataSoA();
-    outFile.write(reinterpret_cast<const char*>(data.qx.data()), NBodies * sizeof(T));
-    outFile.write(reinterpret_cast<const char*>(data.qy.data()), NBodies * sizeof(T));
-    outFile.write(reinterpret_cast<const char*>(data.qz.data()), NBodies * sizeof(T));
-}
-
 #ifdef USE_CUDA
 void checkCuda(cudaError_t result, const char* operation) {
     if (result != cudaSuccess)
@@ -221,9 +244,41 @@ void initializeCudaDevice() {
 }
 #endif
 
+int runReplay() {
+    unsigned long replayBodies = 0;
+    {
+        murb::TrajectoryReader headerReader(ReplayPath);
+        replayBodies = static_cast<unsigned long>(headerReader.getMetadata().bodyCount);
+    }
+
+    const std::string replayScheme = "galaxy";
+    BodiesAllocator<float> allocator(replayBodies, replayScheme);
+    SimulationNBodyBinaryPlayer<float> player(allocator, Softening, ReplayPath);
+    NBodies = replayBodies;
+    std::unique_ptr<SpheresVisu> visu(createVisu<float>(&player));
+    const auto& metadata = player.getMetadata();
+
+    std::cout << "replay=" << ReplayPath << " bodies=" << metadata.bodyCount
+              << " frames=" << metadata.frameCount << " stride=" << metadata.recordingStride
+              << " dt=" << std::setprecision(17) << metadata.timestep
+              << " backend=" << metadata.backend << " source_revision=" << metadata.sourceCommit
+              << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off") << '\n';
+
+    std::uint64_t displayed = 0;
+    while (!visu->windowShouldClose() && player.readNextFrame()) {
+        visu->refreshDisplay();
+        ++displayed;
+        if (Verbose)
+            std::cout << "replayed_frame=" << displayed << '/' << metadata.frameCount << '\n';
+    }
+    std::cout << "replayed_frames=" << displayed << '\n';
+    return EXIT_SUCCESS;
+}
+
 int runSimulation(int argc, char **argv) {
     argsReader(argc, argv);
     printVersion();
+    if (!ReplayPath.empty()) return runReplay();
 #ifdef USE_CUDA
     if (isCudaBackend()) initializeCudaDevice();
 #endif
@@ -238,7 +293,9 @@ int runSimulation(int argc, char **argv) {
               << " dt=" << std::setprecision(9) << Dt
               << " softening=" << Softening << " scheme=" << BodiesScheme
               << " precision=fp32 visualization=" << (VisuEnable ? "on" : "off")
-              << " recording=off\n";
+              << " recording=" << (RecordPath.empty() ? "off" : RecordPath);
+    if (!RecordPath.empty()) std::cout << " record_every=" << RecordEvery;
+    std::cout << '\n';
 
     for (unsigned long warmup = 0; warmup < NWarmup; ++warmup) {
         simu->computeOneIteration();
@@ -254,6 +311,15 @@ int runSimulation(int argc, char **argv) {
     if (isCudaBackend())
         checkCuda(cudaDeviceSynchronize(), "CUDA warm-up completion");
 #endif
+
+    std::unique_ptr<murb::TrajectoryWriter> recorder;
+    if (!RecordPath.empty()) {
+        const auto& data = simu->getBodies()->getDataSoA();
+        std::vector<float> radii(data.r.begin(), data.r.begin() + NBodies);
+        recorder = std::make_unique<murb::TrajectoryWriter>(
+            RecordPath, NBodies, RecordEvery, Dt, ImplTag, MURB_REVISION, radii);
+    }
+
     wall.start();
     while (completed < NIterations && !visu->windowShouldClose()) {
         perfIte.start();
@@ -268,6 +334,9 @@ int runSimulation(int argc, char **argv) {
         perfTotal += perfIte;
         ++completed;
 
+        if (recorder && completed % RecordEvery == 0)
+            recorder->writeFrame(completed, simu->getBodies()->getDataSoA());
+
         if (VisuEnable) {
             // Refresh cached GPU state outside compute timing, before rendering.
             simu->getBodies()->getDataSoA();
@@ -277,6 +346,8 @@ int runSimulation(int argc, char **argv) {
             std::cout << "completed=" << completed << '/' << NIterations << '\n';
     }
     wall.stop();
+    const auto recordedFrames = recorder ? recorder->getFrameCount() : 0;
+    if (recorder) recorder->finalize();
     const double interactions = static_cast<double>(NBodies) * NBodies * completed;
     const double computeMs = perfTotal.getElapsedTime();
     const double averageMs = completed > 0 ? computeMs / completed : 0.0;
@@ -289,6 +360,8 @@ int runSimulation(int argc, char **argv) {
               << " interactions_per_second=" << rate;
     if (ShowGFlops)
         std::cout << " estimated_GFLOP_per_second=" << rate * 20.0 / 1e9;
+    if (recorder)
+        std::cout << " recorded_frames=" << recordedFrames << " trajectory=" << RecordPath;
     std::cout << '\n';
     if (computeMs <= 0) std::cout << "Timing below clock resolution; rates reported as zero.\n";
     return EXIT_SUCCESS;

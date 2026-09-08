@@ -14,6 +14,10 @@
 #include "OGLSpheresVisuGS.hpp"
 #include "OGLTools.hpp"
 
+#ifndef MURB_SHADER_DIR
+#error "MURB_SHADER_DIR must identify the OpenGL shader directory"
+#endif
+
 template <typename T>
 OGLSpheresVisuGS<T>::OGLSpheresVisuGS(const std::string winName, const int winWidth, const int winHeight,
                                       const T *positionsX, const T *positionsY, const T *positionsZ,
@@ -25,17 +29,18 @@ OGLSpheresVisuGS<T>::OGLSpheresVisuGS(const std::string winName, const int winWi
 {
     if (this->window) {
         // specify shaders path and compile them
+        const std::string shaderDirectory = MURB_SHADER_DIR;
         std::vector<GLenum> shadersType(3);
         std::vector<std::string> shadersFiles(3);
         shadersType[0] = GL_VERTEX_SHADER;
-        shadersFiles[0] = velocitiesX && color ? "../src/common/ogl/shaders/vertex330_color_v2.glsl"
-                                               : "../src/common/ogl/shaders/vertex330.glsl";
+        shadersFiles[0] = shaderDirectory + (velocitiesX && color ? "/vertex330_color_v2.glsl"
+                                                                  : "/vertex330.glsl");
         shadersType[1] = GL_GEOMETRY_SHADER;
-        shadersFiles[1] = velocitiesX && color ? "../src/common/ogl/shaders/geometry330_color_v2.glsl"
-                                               : "../src/common/ogl/shaders/geometry330.glsl";
+        shadersFiles[1] = shaderDirectory + (velocitiesX && color ? "/geometry330_color_v2.glsl"
+                                                                  : "/geometry330.glsl");
         shadersType[2] = GL_FRAGMENT_SHADER;
-        shadersFiles[2] = velocitiesX && color ? "../src/common/ogl/shaders/fragment330_color_v2.glsl"
-                                               : "../src/common/ogl/shaders/fragment330.glsl";
+        shadersFiles[2] = shaderDirectory + (velocitiesX && color ? "/fragment330_color_v2.glsl"
+                                                                  : "/fragment330.glsl");
 
         this->compileShaders(shadersType, shadersFiles);
     }

@@ -37,7 +37,7 @@ were observed, and the worktree remained clean.
 | `gpu+tracking` | BROKEN | Not enabled | Not run | Not run | Different workload | Diagnostic feature only | Fix buffer sizing and lifecycle/error handling | Defer repair |
 | `gpu+leapfrog` | BROKEN | Not enabled | Not run | Not run | Different integrator | Low before event | Fix constructor wiring and storage; add invariant tests | Defer repair |
 | CPU MPI | DEFER | Not enabled | Not run | Not run | Low for this phase | Low for single-node demo | Centralize MPI lifecycle; add rank tests | Defer |
-| `bin+player` | DEFER | Not enabled | Not run | Not run | None for benchmark | Useful in Phase 1b | Define format and correct EOF behavior | Defer |
+| `.murbtraj` replay | OPTIONAL | Enabled | Local validation required | Format tests | None for benchmark | Leonardo-to-Mac visualization | Validate representative A100 file | Keep separate from benchmarks |
 | Barnes-Hut | DEFER | Excluded | Not run | Not validated | None currently | Low before event | Source is a duplicate naive stub, not Barnes-Hut | Do not repair now |
 
 ## Small smoke measurements
@@ -104,11 +104,11 @@ two-rank numerical tests.
 
 ### Binary replay
 
-`SimulationNBodyBinaryPlayer.cpp` opens its input with `std::ifstream`, so it
-does not truncate it. It does not validate header reads, format identity,
-precision, endianness, or complete frames. An EOF during a frame can leave
-partial or stale state before the stream is rewound. Recording remains disabled
-by default, and replay should stay in Phase 1b.
+The historical implicit `simulation_data.bin` path has been replaced by an
+explicit, versioned `.murbtraj` reader and opt-in recorder. Normal benchmark
+runs remain recording-free. The reader validates format identity, precision,
+endianness policy, complete headers and exact frame payload size before replay.
+See `TRAJECTORY_FORMAT.md` for the byte-level contract.
 
 ## Recommendation
 

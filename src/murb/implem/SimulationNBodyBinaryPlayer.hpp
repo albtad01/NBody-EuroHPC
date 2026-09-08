@@ -2,20 +2,23 @@
 #define SIMULATION_N_BODY_BINARY_PLAYER_HPP_
 
 #include "core/SimulationNBodyInterface.hpp"
-#include <fstream>
+#include "core/TrajectoryBinary.hpp"
 #include <string>
 
 template <typename T>
 class SimulationNBodyBinaryPlayer : public SimulationNBodyInterface<T> {
 protected:
-    std::ifstream inFile;
     std::string fileName;
+    murb::TrajectoryReader reader;
 
 public:
-    SimulationNBodyBinaryPlayer(const BodiesAllocatorInterface<T>& allocator, const T soft, std::string filename = "simulation_data.bin");
-    virtual ~SimulationNBodyBinaryPlayer();
+    SimulationNBodyBinaryPlayer(const BodiesAllocatorInterface<T>& allocator, const T soft,
+                                const std::string& filename);
+    virtual ~SimulationNBodyBinaryPlayer() = default;
 
     virtual void computeOneIteration() override;
+    bool readNextFrame();
+    const murb::TrajectoryMetadata& getMetadata() const;
 };
 
 #endif

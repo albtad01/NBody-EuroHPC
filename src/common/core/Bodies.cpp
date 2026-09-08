@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <string>
 
 #include "../utils/Perf.hpp"
@@ -47,6 +48,40 @@ template <typename T> unsigned short Bodies<T>::getPadding() const { return this
 template <typename T> const dataSoA_t<T> &Bodies<T>::getDataSoA() const { return this->dataSoA; }
 
 template <typename T> const std::vector<dataAoS_t<T>> &Bodies<T>::getDataAoS() const { return this->dataAoS; }
+
+template <typename T> void Bodies<T>::setRadii(const std::vector<T>& radii)
+{
+    if (radii.size() != this->n)
+        throw std::invalid_argument("radius count does not match body count");
+    for (unsigned long index = 0; index < this->n; ++index) {
+        this->dataSoA.r[index] = radii[index];
+        this->dataAoS[index].r = radii[index];
+    }
+}
+
+template <typename T>
+void Bodies<T>::setPositionsAndVelocities(const std::vector<T>& qx, const std::vector<T>& qy,
+                                          const std::vector<T>& qz, const std::vector<T>& vx,
+                                          const std::vector<T>& vy, const std::vector<T>& vz)
+{
+    if (qx.size() != this->n || qy.size() != this->n || qz.size() != this->n ||
+        vx.size() != this->n || vy.size() != this->n || vz.size() != this->n)
+        throw std::invalid_argument("trajectory frame size does not match body count");
+    for (unsigned long index = 0; index < this->n; ++index) {
+        this->dataSoA.qx[index] = qx[index];
+        this->dataSoA.qy[index] = qy[index];
+        this->dataSoA.qz[index] = qz[index];
+        this->dataSoA.vx[index] = vx[index];
+        this->dataSoA.vy[index] = vy[index];
+        this->dataSoA.vz[index] = vz[index];
+        this->dataAoS[index].qx = qx[index];
+        this->dataAoS[index].qy = qy[index];
+        this->dataAoS[index].qz = qz[index];
+        this->dataAoS[index].vx = vx[index];
+        this->dataAoS[index].vy = vy[index];
+        this->dataAoS[index].vz = vz[index];
+    }
+}
 
 template <typename T> float Bodies<T>::getAllocatedBytes() const { return this->allocatedBytes; }
 

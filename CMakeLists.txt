@@ -37,15 +37,14 @@ endif ()
 set(LINK_VISU 0)
 if (ENABLE_VISU)
     set (OpenGL_GL_PREFERENCE LEGACY)
-    find_package (OpenGL)
-    find_package (GLEW)
-    find_package (GLM)
-    find_package (GLFW)
-    if ((OPENGL_FOUND) AND (GLEW_FOUND) AND (GLM_FOUND) AND (GLFW_FOUND))
-        set (LINK_VISU 1)
-    else ()
-        set (LINK_VISU 0)
-    endif ()
+    find_package (OpenGL REQUIRED)
+    find_package (GLEW REQUIRED)
+    find_package (GLM REQUIRED)
+    find_package (GLFW REQUIRED)
+    set (LINK_VISU 1)
+    message (STATUS "MUrB OpenGL visualization: ENABLED")
+else ()
+    message (STATUS "MUrB OpenGL visualization: DISABLED")
 endif ()
 
 # --- Part 1: Common Library ---
@@ -67,6 +66,7 @@ if (ENABLE_MURB)
         src/murb/implem/SimulationNBodyOptim.cpp
         src/murb/implem/SimulationNBodySIMD.cpp
         src/murb/implem/SimulationNBodyOpenMP.cpp
+        src/murb/implem/SimulationNBodyBinaryPlayer.cpp
     )
     if (ENABLE_MURB_CUDA)
         list (APPEND source_murb_implem_files
@@ -96,6 +96,11 @@ if (ENABLE_MURB)
         target_include_directories (test-bin PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/murb/implem")
         enable_testing()
         add_test(NAME murb::test COMMAND test-bin)
+        add_test(NAME murb::trajectory-cli
+            COMMAND ${CMAKE_COMMAND}
+                -DMURB_EXECUTABLE=$<TARGET_FILE:murb-bin>
+                -DTEST_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/trajectory-cli-test
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TestTrajectoryCLI.cmake)
     endif ()
 endif ()
 
@@ -166,6 +171,8 @@ if (LINK_VISU)
         targets_link_libraries ("${murb_targets_list}" PRIVATE "${GLFW_LIBRARIES}")
     endif ()
     targets_compile_definitions("${murb_targets_list}" PRIVATE VISU)
+    targets_compile_definitions("${murb_targets_list}" PRIVATE
+        MURB_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/common/ogl/shaders")
 endif ()
 
 # OpenMP support

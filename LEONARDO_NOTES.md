@@ -16,4 +16,6 @@ Before submitting either script:
 
 The initial A100 acceptance run should use a small body count and compare the
 existing Catch2 `[correctness]` cases against `cpu+naive` before increasing the
-benchmark workload. Multi-GPU execution and replay are deferred.
+benchmark workload. Multi-GPU execution remains deferred. Optional trajectory
+recording must use an explicit `.murbtraj` path and must not be mixed with a
+performance measurement.

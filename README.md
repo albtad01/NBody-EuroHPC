@@ -19,9 +19,8 @@ This exploratory branch also makes `cpu+optim`, `cpu+simd`, `gpu+tile`, and
 not replace the three Phase 1 demo backends. Their validation status and known
 limits are recorded in [SINGLE_NODE_BACKENDS.md](SINGLE_NODE_BACKENDS.md).
 
-Multi-GPU execution, trajectory recording, and `bin+player` replay remain
-deferred. Their source files are preserved but excluded from the supported
-single-node build.
+Multi-GPU execution remains deferred. Simulations can optionally record a
+versioned `.murbtraj` file for replay on a separate visualization machine.
 
 Leonardo benchmark jobs are headless. A local build may still enable the
 existing OpenGL visualization when OpenGL, GLEW, GLM, and GLFW are available.
@@ -84,7 +83,7 @@ each source commit before submitting.
 The Phase 1 syntax is:
 
 ```text
-murb -n BODIES -i ITERATIONS --im BACKEND [--warmup ITERATIONS] [--nv] [--gf] [--dt SECONDS]
+murb -n BODIES -i ITERATIONS --im BACKEND [--warmup ITERATIONS] [--record FILE.murbtraj] [--record-every K] [--nv] [--gf] [--dt SECONDS]
 ```
 
 Options used by the demo are:
@@ -99,14 +98,44 @@ Options used by the demo are:
 - `--dt`: finite, positive time step in seconds.
 - `--warmup`: optional positive number of untimed iterations performed in the
   same process before measurement.
+- `--record`: explicitly enable trajectory recording to the given `.murbtraj`
+  path.
+- `--record-every`: record every Kth timed iteration; the default is every
+  timed iteration.
 
 `--scheme galaxy|random`, `-v`, `--help`, and `--version` are also accepted.
 Unknown, duplicate, missing, and invalid options cause a clear nonzero exit.
 
-The default mode is headless and does not record a trajectory. A normal run
-does not create or overwrite `simulation_data.bin`. `--visu` is accepted only
-by a build in which the OpenGL dependencies were found and visualization was
-compiled.
+The default mode is headless and does not record a trajectory. Without
+`--record`, no trajectory file or host snapshot is created. `--visu` is
+accepted only by a build in which the OpenGL dependencies were found and
+visualization was compiled.
+
+## Optional trajectory recording and replay
+
+Recording is outside the measured per-iteration compute time. On a full-device
+CUDA simulation, each recorded frame intentionally copies positions and
+velocities to the host after CUDA synchronization. Runs without `--record` do
+not perform that transfer.
+
+For example, on one allocated Leonardo A100:
+
+```bash
+srun --nodes=1 --ntasks=1 --gpus-per-task=1 \
+  ./build-leonardo/bin/murb -n 10000 -i 200 --warmup 5 \
+  --im gpu+tile+full --nv --record /path/to/scratch/demo.murbtraj \
+  --record-every 10
+```
+
+Copy the completed file to the Mac, configure the `mac` preset, and replay it:
+
+```bash
+./build-mac/bin/murb --replay /path/to/demo.murbtraj --visu
+```
+
+Replay obtains the body and frame counts from the file; `-n`, `-i`, and
+`--im` are not used. A headless integrity pass is also available with `--nv`.
+The format is documented in [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md).
 
 ## Run the Phase 1 jobs
 
@@ -162,8 +191,8 @@ That GPU validation must run in a scheduled allocation, not on a login node.
 
 Visualization is outside the Leonardo benchmark path but remains available.
 Configure with `-DENABLE_VISU=ON` on a machine that provides OpenGL, GLEW, GLM,
-and GLFW. If those dependencies are absent, CMake produces a headless build and
-`--visu` reports that visualization was not compiled.
+and GLFW. A visualization-enabled configuration fails clearly if any of these
+dependencies is absent. Headless presets keep `ENABLE_VISU=OFF`.
 
 The existing `mac` preset requests visualization:
 
@@ -171,10 +200,6 @@ The existing `mac` preset requests visualization:
 cmake --preset mac
 cmake --build build-mac
 ```
-
-Trajectory recording and `bin+player` are reserved for Phase 1b. They are not
-selectable in this branch, and no file format compatibility is promised by the
-Phase 1 benchmark workflow.
 
 ## Deferred implementations
 
@@ -184,7 +209,6 @@ The following paths are not supported or validated by this stabilization:
 - `gpu+tracking` and `gpu+leapfrog`.
 - Heterogeneous CPU/GPU execution.
 - Barnes-Hut, OpenCL, CADNA, and other experimental kernels.
-- Binary trajectory recording and `bin+player` replay.
 
 Do not use `scripts/run_gpu_multinode.sh` for the Phase 1 demo.
 
