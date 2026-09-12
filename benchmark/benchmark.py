@@ -81,6 +81,28 @@ def load_json(path):
         return json.load(handle)
 
 
+def validate_campaign(path, repo=None):
+    campaign = path.resolve()
+    metadata = load_json(campaign / "metadata.json")
+    try:
+        recorded = Path(metadata["campaign_path"]).resolve()
+        results_root = Path(metadata["results_root"]).resolve()
+        source = Path(metadata["repository"]).resolve()
+        sha = metadata["git"]["sha"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("campaign metadata is missing its path or Git identity") from error
+    if (campaign != recorded or campaign.parent.name != sha or
+            campaign.parent.parent != results_root or is_within(campaign, source)):
+        raise ValueError("campaign path does not match its external metadata location")
+    if repo is not None and repo.resolve() != source:
+        raise ValueError("campaign was initialized for a different worktree")
+    for name in ("raw", "gpu_samples", "runs", "plots"):
+        directory = campaign / name
+        if not directory.is_dir() or directory.is_symlink() or directory.resolve().parent != campaign:
+            raise ValueError("campaign subdirectory is missing or redirected: " + name)
+    return campaign, metadata
+
+
 def init_campaign(args):
     repo = args.repo.resolve()
     config_path = args.config.resolve()
@@ -99,6 +121,8 @@ def init_campaign(args):
     metadata = {
         "schema_version": 1,
         "created_utc": utc_now(),
+        "campaign_path": str(campaign),
+        "results_root": str(results_root),
         "repository": str(repo),
         "git": git,
         "host": socket.gethostname(),
@@ -143,6 +167,8 @@ def parse_summary(stdout):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"invalid {name}: {fields[name]}")
         parsed[name] = value
+    if parsed["average_ms_per_iteration"] <= 0:
+        raise ValueError("average_ms_per_iteration must be positive")
     parsed["simulation_steps_per_second"] = (
         1000.0 / float(parsed["average_ms_per_iteration"])
         if float(parsed["average_ms_per_iteration"]) > 0 else 0.0
@@ -255,6 +281,26 @@ def launcher_for(backend, cpu_count, local):
         return common + ["--ntasks=4", "--ntasks-per-node=4", "--cpus-per-task=8", "--gpus-per-task=1", "--gpu-bind=map_gpu:0,1,2,3"], "0,1,2,3"
     raise ValueError(f"backend is not in the primary matrix: {backend}")
 
+def assert_single_gpu_visible(launcher, env, run_dir):
+    probe = ("import ctypes,sys; runtime=ctypes.CDLL('libcudart.so'); "
+             "count=ctypes.c_int(); status=runtime.cudaGetDeviceCount(ctypes.byref(count)); "
+             "print('cuda_runtime_status=%d visible_cuda_devices=%d' % (status,count.value)); "
+             "sys.exit(0 if status == 0 and count.value == 1 else 1)")
+    command = launcher + [sys.executable, "-c", probe]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                universal_newlines=True, env=env, timeout=60, check=False)
+        stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else (error.stdout or "")
+        stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else (error.stderr or "")
+        returncode = 124
+    atomic_text(run_dir / "gpu_visibility_stdout.txt", stdout)
+    atomic_text(run_dir / "gpu_visibility_stderr.txt", stderr)
+    if returncode != 0 or stdout.strip() != "cuda_runtime_status=0 visible_cuda_devices=1":
+        raise RuntimeError("one-A100 CUDA visibility preflight failed; inspect " + str(run_dir))
+
+
 
 def validate_binary(binary, sha, backend, source_dirty):
     if not binary.is_file() or not os.access(binary, os.X_OK):
@@ -278,7 +324,7 @@ def run_one(
     warmup: int, repetition: int, timeout: int, cpu_count: int, gpu_count: int,
     scheme: str, timestep: float, sampling_ms: int, local: bool, allow_dirty: bool,
 ):
-    campaign_meta = load_json(campaign / "metadata.json")
+    campaign, campaign_meta = validate_campaign(campaign, repo)
     git = git_info(repo)
     if git["sha"] != campaign_meta["git"]["sha"]:
         raise RuntimeError("campaign Git SHA does not match the current worktree")
@@ -304,6 +350,8 @@ def run_one(
         "OMP_NUM_THREADS": str(cpu_count if backend == "cpu+omp" else 1),
         "OMP_DYNAMIC": "FALSE", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close",
     })
+    if backend == "gpu+tile+full":
+        assert_single_gpu_visible(launcher, env, run_dir)
     sampler = start_gpu_sampler(gpu_path, devices, sampling_ms) if gpu_count else None
     if sampler is not None:
         time.sleep(max(0.05, sampling_ms / 1000.0 * 1.25))
@@ -349,6 +397,10 @@ def run_one(
         "peak_host_memory_source": "GNU time per-task maximum" if rss_values else "unavailable",
         "wrapper_children_maxrss_kib_delta": max(0, after_rss - before_rss),
         "stdout_path": str(stdout_path.relative_to(campaign)),
+        "gpu_visibility_stdout_path": str((run_dir / "gpu_visibility_stdout.txt").relative_to(campaign))
+        if backend == "gpu+tile+full" else None,
+        "gpu_visibility_stderr_path": str((run_dir / "gpu_visibility_stderr.txt").relative_to(campaign))
+        if backend == "gpu+tile+full" else None,
         "stderr_path": str(stderr_path.relative_to(campaign)),
         "gpu_samples_path": str(gpu_path.relative_to(campaign)) if gpu_path.exists() else None,
         **version_metadata(),
@@ -357,6 +409,9 @@ def run_one(
     }
     try:
         timing = parse_summary(stdout)
+        if backend == "gpu+tile+full":
+            if re.findall(r"visible devices:\s*(\d+)", stdout) != ["1"]:
+                raise ValueError("one-A100 invocation did not report exactly one visible GPU")
         if int(timing["completed_iterations"]) != iterations:
             raise ValueError("completed iteration count does not match request")
         record.update(timing)
@@ -384,8 +439,10 @@ def selected_n_values(spec, override):
 
 
 def run_group(args):
-    campaign = args.campaign.resolve()
-    metadata = load_json(campaign / "metadata.json")
+    campaign, metadata = validate_campaign(args.campaign, args.repo)
+    if ((campaign / ".aggregate.lock").exists() or (campaign / "results.csv").exists() or
+            (campaign / "summary.csv").exists() or (campaign / "summary.md").exists()):
+        raise RuntimeError("campaign aggregation has started; refusing new benchmark runs")
     matrix = metadata["matrix"]
     defaults = matrix["defaults"]
     repetitions = args.repetitions or int(os.environ.get("MURB_REPETITIONS", defaults["repetitions"]))
@@ -422,6 +479,7 @@ def run_group(args):
                     int(spec["gpu_count"]), defaults["scheme"], float(defaults["dt"]),
                     int(defaults["gpu_sampling_ms"]), args.local, args.allow_dirty,
                 )
+                failures += record["status"] != "ok"
     return 1 if failures else 0
 
 
@@ -458,11 +516,24 @@ def write_csv(path, rows, fields):
     os.replace(temporary, path)
 
 
-def aggregate(args):
-    campaign = args.campaign.resolve()
+def aggregate_unlocked(campaign, metadata):
     records = read_records(campaign)
     if not records:
         raise RuntimeError("campaign contains no raw records")
+    for record in records:
+        run_id = record.get("run_id", "unknown")
+        if record.get("git_sha") != metadata["git"]["sha"]:
+            raise ValueError("raw record belongs to a different Git SHA: " + str(run_id))
+        if record.get("git_dirty") != metadata["git"]["dirty"]:
+            raise ValueError("raw record dirty status differs from campaign: " + str(run_id))
+        if record.get("status") == "ok":
+            if (record.get("returncode") != 0 or record.get("timed_out") or
+                    record.get("parse_error") or record.get("completed_iterations") != record.get("iterations") or
+                    not isinstance(record.get("average_ms_per_iteration"), (int, float)) or
+                    record["average_ms_per_iteration"] <= 0):
+                raise ValueError("inconsistent successful raw record: " + str(run_id))
+        elif record.get("status") != "failed":
+            raise ValueError("raw record has an unknown status: " + str(run_id))
     result_fields = [
         "run_id", "status", "timestamp_utc", "git_sha", "git_dirty", "slurm_job_id", "hostname",
         "backend", "n", "iterations", "warmup_iterations", "repetition", "scheme", "dt",
@@ -473,7 +544,8 @@ def aggregate(args):
         "peak_gpu_power_w", "gpu_energy_process_window_j", "gpu_energy_timed_region_j",
         "gpu_energy_scope", "gpu_sample_count", "gpu_inventory", "compiler_version", "cuda_version", "mpi_version",
         "slurm_partition", "slurm_job_nodelist", "loaded_modules",
-        "stdout_path", "stderr_path", "gpu_samples_path", "returncode", "timed_out", "parse_error",
+        "stdout_path", "stderr_path", "gpu_visibility_stdout_path", "gpu_visibility_stderr_path",
+        "gpu_samples_path", "returncode", "timed_out", "parse_error",
     ]
     write_csv(campaign / "results.csv", records, result_fields)
     grouped = {}
@@ -527,6 +599,39 @@ def aggregate(args):
     return 0
 
 
+def aggregate(args):
+    campaign, metadata = validate_campaign(args.campaign)
+    lock_path = campaign / ".aggregate.lock"
+    try:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        raise RuntimeError("another aggregation is already running or left a lock")
+    try:
+        os.write(lock_fd, ("pid=%d created=%s\n" % (os.getpid(), utc_now())).encode("utf-8"))
+        artifacts = ("results.csv", "summary.csv", "summary.md")
+        if any((campaign / name).exists() for name in artifacts) or any((campaign / "plots").iterdir()):
+            raise RuntimeError("aggregate artifacts already exist; refusing to overwrite them")
+        unfinished = [path.name for path in (campaign / "runs").iterdir()
+                      if path.is_dir() and (not (path / "record.json").exists() or
+                                            not (campaign / "raw" / (path.name + ".json")).exists())]
+        if unfinished:
+            raise RuntimeError("unfinished benchmark invocations: " + ", ".join(sorted(unfinished)))
+        return aggregate_unlocked(campaign, metadata)
+    finally:
+        os.close(lock_fd)
+        lock_path.unlink()
+
+
+def save_plot(fig, path):
+    temporary = path.with_name(".%s.%s.tmp.png" % (path.stem, uuid.uuid4().hex))
+    try:
+        fig.savefig(temporary, dpi=180)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def make_plots(campaign, rows):
     try:
         import matplotlib.pyplot as plt
@@ -556,7 +661,7 @@ def make_plots(campaign, rows):
         axis.grid(True, which="both", alpha=0.25)
         axis.legend()
         fig.tight_layout()
-        fig.savefig(plots / filename, dpi=180)
+        save_plot(fig, plots / filename)
         plt.close(fig)
     line_plot("01_time_per_iteration_vs_n.png", "median_average_ms_per_iteration", "Median time per iteration (ms)", logy=True)
     line_plot("02_simulation_steps_per_second_vs_n.png", "median_simulation_steps_per_second", "Simulation steps/s", logy=True)
@@ -579,7 +684,7 @@ def make_plots(campaign, rows):
         axis.grid(True, which="both", alpha=0.25)
         axis.legend()
         fig.tight_layout()
-        fig.savefig(plots / "08_one_vs_four_a100.png", dpi=180)
+        save_plot(fig, plots / "08_one_vs_four_a100.png")
         plt.close(fig)
 
 

@@ -68,10 +68,13 @@ python3 benchmark/benchmark.py aggregate --campaign "$CAMPAIGN"
 
 The default path is
 `/leonardo_work/EUHPC_TDEMO_26/benchmark-results/<git-sha>/<UTC-timestamp>/`.
-Campaign creation refuses a path inside the repository. Every invocation gets
-a UUID-bearing run ID, its own directory, stdout, stderr, GPU sample file, and
-JSON record. Raw records and aggregate files are published with atomic renames,
-so concurrent Slurm jobs cannot partially overwrite one another.
+Campaign creation refuses a path inside the repository; execution and
+aggregation verify the canonical path against campaign metadata. Every
+invocation gets a UUID-bearing run ID, its own directory, stdout, stderr, GPU
+sample file, and JSON record. The one-A100 path also retains CUDA visibility
+probe logs. Aggregate once after all jobs finish: an exclusive lock and
+pre-existing-artifact check refuse concurrent or repeated aggregation rather
+than overwriting CSV, Markdown, or plots. Use a new campaign for another run.
 
 ```text
 metadata.json
