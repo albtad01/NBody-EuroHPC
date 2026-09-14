@@ -54,7 +54,12 @@ Additional exploratory single-node implementations are `cpu+optim`,
 ## Build
 
 Build before submitting a job. Each path uses a separate CMake preset and build
-directory.
+directory. The `generic` preset builds the CPU/OpenMP executable without CUDA
+or MPI. The `leonardo` preset adds CUDA for one A100 but keeps MPI disabled.
+`leonardo-multi` inherits the CUDA settings and enables the four-rank MPI
+backend, compiling additional MPI-specific sources. Keep its separate
+`build-leonardo-multi` directory: the two CUDA executables are not equivalent.
+Load OpenMPI only for the four-A100 build and job.
 
 ### Leonardo CPU
 
@@ -121,6 +126,10 @@ sbatch scripts/run_gpu_multinode.sh
 | `scripts/run_gpu.sh` | `gpu+tile+full`, 1 × A100 |
 | `scripts/run_gpu_multinode.sh` | `gpu+multinode`, 4 × A100 with 4 MPI ranks |
 
+These job scripts use the same minimal module sets as their matching build
+commands above: GCC for CPU, GCC and CUDA for one A100, and GCC, CUDA, and
+OpenMPI for four A100s.
+
 Environment variables override script defaults. Common examples are `MURB_N`
 and `MURB_ITERS`; the four-A100 script also accepts `MURB_WARMUP`. For example:
 
@@ -131,6 +140,10 @@ MURB_N=2049 MURB_ITERS=3 MURB_WARMUP=1 \
 
 The scripts also accept `MURB_DT`; see the script headers and the linked
 documentation for path-specific controls.
+
+The normal visual demos use about 10,000 bodies so individual structures remain
+clear. Performance benchmarks have also been run at much larger N; see
+[BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) for the measured results and methods.
 
 ## Trajectory Recording & Replay
 
@@ -178,7 +191,8 @@ it with the visualization build:
 
 Replay does not recompute the physics. It visualizes the trajectory generated
 on Leonardo. See [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md) for the versioned
-binary format.
+binary format. The recording job defaults to about 10,000 bodies for a readable
+demo; `MURB_N` and `MURB_OUTPUT` can select a different size and destination.
 
 ## Validation
 
@@ -207,6 +221,8 @@ communication costs, so four GPUs are not assumed to be faster than one.
 - [TRAJECTORY_FORMAT.md](TRAJECTORY_FORMAT.md) — `.murbtraj` format details.
 - [LEONARDO_NOTES.md](LEONARDO_NOTES.md) — Leonardo environment and operational
   notes.
+- [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) — validated performance results,
+  campaign details, and measurement caveats.
 
 ## License & Attribution
 
