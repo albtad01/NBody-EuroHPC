@@ -274,7 +274,7 @@ def launcher_for(backend, cpu_count, local):
         raise RuntimeError("non-smoke benchmark invocations must run inside a Slurm allocation")
     common = ["srun", "--exclusive", "--nodes=1", "--cpu-bind=cores"]
     if backend in ("cpu+naive", "cpu+omp"):
-        return common + ["--ntasks=1", f"--cpus-per-task={cpu_count}"], ""
+        return common + ["--gres=none", "--ntasks=1", f"--cpus-per-task={cpu_count}"], ""
     if backend == "gpu+tile+full":
         return common + ["--ntasks=1", "--cpus-per-task=8", "--gpus-per-task=1", "--gpu-bind=map_gpu:0"], "0"
     if backend == "gpu+multinode":
