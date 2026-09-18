@@ -8,8 +8,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:4
 #SBATCH --time=00:20:00
-#SBATCH --output=nbody_4gpu_%j.out
-#SBATCH --error=nbody_4gpu_%j.err
+#SBATCH --output=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_4gpu_%j.out
+#SBATCH --error=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_4gpu_%j.err
 
 # First supported gpu+multinode topology: one Booster node, four ranks, four A100s.
 set -euo pipefail
@@ -39,30 +39,10 @@ git_root="$(cd "$git_root" && pwd -P)"
     exit 1
 }
 
-revision="$(git -C "$ROOT" rev-parse HEAD)"
-version="$("$BIN" --version)"
-[[ "$version" == "murb revision=$revision dirty=0 "* ]] || {
-    echo "Executable is stale or was built from dirty sources: $version" >&2
-    exit 1
-}
-git -C "$ROOT" diff --quiet HEAD -- || {
-    echo "Tracked sources changed after the build; rebuild before submitting." >&2
-    exit 1
-}
-unexpected_status=""
-while IFS= read -r status_line; do
-    case "$status_line" in
-        "?? nbody_4gpu_${SLURM_JOB_ID}.out"|"?? nbody_4gpu_${SLURM_JOB_ID}.err") ;;
-        *) unexpected_status+="$status_line"$'\n' ;;
-    esac
-done < <(git -C "$ROOT" status --porcelain --untracked-files=normal)
-[[ -z "$unexpected_status" ]] || {
-    echo "The worktree is not clean (apart from this job's Slurm logs):" >&2
-    printf '%s' "$unexpected_status" >&2
-    exit 1
-}
-[[ "$version" == *" cuda=1 "* && "$version" == *" mpi=1"* ]] || {
-    echo "A CUDA- and MPI-enabled executable is required: $version" >&2
+source "$ROOT/scripts/provenance.sh"
+murb_check_provenance "$ROOT" "$BIN"
+[[ "$MURB_EXECUTABLE_VERSION" == *" cuda=1 "* && "$MURB_EXECUTABLE_VERSION" == *" mpi=1"* ]] || {
+    echo "A CUDA- and MPI-enabled executable is required: $MURB_EXECUTABLE_VERSION" >&2
     exit 1
 }
 
@@ -101,6 +81,7 @@ awk -v value="$DT" 'BEGIN {
 record_args=()
 OUTPUT=""
 if [[ -n "${MURB_OUTPUT:-}" ]]; then
+    # Canonical demo output: /leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj
     [[ "$MURB_OUTPUT" == /* && "$MURB_OUTPUT" == *.murbtraj ]] || {
         echo "MURB_OUTPUT must be an absolute path ending in .murbtraj" >&2
         exit 1
@@ -128,7 +109,7 @@ if [[ -n "${MURB_OUTPUT:-}" ]]; then
 fi
 
 echo "SLURM job ID: $SLURM_JOB_ID"
-echo "Git SHA: $revision"
+echo "Git SHA: $MURB_GIT_REVISION"
 echo "Node: $(hostname)"
 echo "MPI rank count: ${SLURM_NTASKS:-4}"
 echo "GPU count: 4"
@@ -152,7 +133,6 @@ if [[ -n "$OUTPUT" ]]; then
 else
     echo "Recording: disabled"
 fi
-echo "$version"
 
 export OMP_NUM_THREADS=1
 export OMP_DYNAMIC=FALSE

@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:10:00
-#SBATCH --output=nbody_cpu_%j.out
-#SBATCH --error=nbody_cpu_%j.err
+#SBATCH --output=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_cpu_%j.out
+#SBATCH --error=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_cpu_%j.err
 
 # Prebuilt Phase 1 benchmark. Account may be overridden with sbatch --account.
 set -euo pipefail
@@ -23,18 +23,9 @@ BIN="$BUILD/bin/murb"
     echo "Missing executable or successful build stamp: $BUILD. Build before submitting." >&2
     exit 1
 }
-revision="$(git -C "$ROOT" rev-parse HEAD)"
-version="$("$BIN" --version)"
-[[ "$version" == "murb revision=$revision dirty=0 "* ]] || {
-    echo "Executable is stale or was built from dirty sources: $version" >&2
-    exit 1
-}
-git -C "$ROOT" diff --quiet HEAD -- || {
-    echo "Tracked sources changed after the build; rebuild before submitting." >&2
-    exit 1
-}
+source "$ROOT/scripts/provenance.sh"
+murb_check_provenance "$ROOT" "$BIN"
 
-echo "$version"
 echo "job=${SLURM_JOB_ID:-unknown} node=$(hostname) executable=$BIN"
 export OMP_NUM_THREADS=1
 export OMP_DYNAMIC=FALSE

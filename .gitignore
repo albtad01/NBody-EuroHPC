@@ -4,7 +4,10 @@ power_tracking_*
 .DS_Store
 **/.DS_Store
 build-*/
-logs/
-scripts/logs/
+/log/*
+!/log/.gitkeep
+# Legacy paths still used by profiling/energy utilities.
+/logs/
+/scripts/logs/
 *.ncu-rep
 *.murbtraj

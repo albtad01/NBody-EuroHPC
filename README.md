@@ -34,6 +34,7 @@ Additional exploratory single-node implementations are `cpu+optim`,
 ├── CMakeLists.txt             # Main build definition
 ├── CMakePresets.json          # Build presets
 ├── assets/                    # Demo media
+├── log/                       # Ignored SLURM stdout/stderr (except .gitkeep)
 ├── lib/                       # Bundled Catch2 and MIPP dependencies
 ├── scripts/                   # Leonardo SLURM jobs and utilities
 ├── src/
@@ -141,6 +142,15 @@ MURB_N=2049 MURB_ITERS=3 MURB_WARMUP=1 \
 The scripts also accept `MURB_DT`; see the script headers and the linked
 documentation for path-specific controls.
 
+All five standard jobs write stdout and stderr under
+`/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/`. The tracked `log/`
+directory exists before Slurm opens those files.
+
+Normal jobs may run from a dirty worktree. They report the current Git HEAD and
+executable version and emit explicit warnings for dirty, stale, or mismatched
+provenance. To make any such warning fatal, set
+`MURB_STRICT_PROVENANCE=1` when submitting the job.
+
 The normal visual demos use about 10,000 bodies so individual structures remain
 clear. Performance benchmarks have also been run at much larger N; see
 [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) for the measured results and methods.
@@ -168,13 +178,27 @@ Generate a trajectory on one A100 with the dedicated recording job:
 sbatch scripts/run_gpu_record.sh
 ```
 
-By default it writes outside the worktree under `$SCRATCH` or `$WORK`. Set
-`MURB_OUTPUT` to choose an absolute `.murbtraj` path.
+By default it writes the output file
+`/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj`, outside the worktree.
+The job refuses to overwrite an existing trajectory; move or delete the old
+file, or set `MURB_OUTPUT` to another absolute `.murbtraj` path.
+
+For example, this records 10,000 bodies every two iterations over 720 simulated
+hours (30 days):
+
+```bash
+MURB_N=10000 \
+MURB_ITERS=720 \
+MURB_WARMUP=3 \
+MURB_DT=3600 \
+MURB_RECORD_EVERY=2 \
+sbatch scripts/run_gpu_record.sh
+```
 
 To record a four-A100 run, provide an absolute output path to the four-GPU job:
 
 ```bash
-MURB_OUTPUT=/absolute/path/demo.murbtraj \
+MURB_OUTPUT=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj \
   sbatch scripts/run_gpu_multinode.sh
 ```
 

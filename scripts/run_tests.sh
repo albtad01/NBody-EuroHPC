@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:1
 #SBATCH --time=00:30:00
-#SBATCH --output=logs/tests_%j.out
-#SBATCH --error=logs/tests_%j.err
+#SBATCH --output=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/tests_%j.out
+#SBATCH --error=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/tests_%j.err
 
 # Stop on first error
 set -e
@@ -18,11 +18,11 @@ module purge
 module load profile/base
 module load gcc/12.2.0
 module load cuda/12.2
-module load openmpi/4.1.6--gcc--12.2.0-cuda-12.2
 module load cmake
 
 cd "$SLURM_SUBMIT_DIR"
-mkdir -p logs
+ROOT="$(pwd -P)"
+source "$ROOT/scripts/provenance.sh"
 
 echo "======================================================"
 echo "    PHASE 1: TESTING CPU (OpenMP) IMPLEMENTATION      "
@@ -35,6 +35,7 @@ export OMP_PROC_BIND=close
 rm -rf build-generic
 cmake --preset generic
 cmake --build build-generic -j 32
+murb_check_provenance "$ROOT" "$ROOT/build-generic/bin/murb"
 
 echo "Running Catch2 tests for CPU..."
 srun ./build-generic/bin/murb-test
@@ -46,6 +47,7 @@ echo "======================================================"
 rm -rf build-leonardo
 cmake --preset leonardo
 cmake --build build-leonardo -j 32
+murb_check_provenance "$ROOT" "$ROOT/build-leonardo/bin/murb"
 
 echo "Running Catch2 tests for GPU..."
 srun ./build-leonardo/bin/murb-test

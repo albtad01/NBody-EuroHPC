@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
 #SBATCH --time=00:20:00
-#SBATCH --output=nbody_gpu_record_%j.out
-#SBATCH --error=nbody_gpu_record_%j.err
+#SBATCH --output=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_gpu_record_%j.out
+#SBATCH --error=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_gpu_record_%j.err
 
 # Generate one visualization trajectory with the validated single-A100 backend.
 # The Leonardo executable must already be built; this job never configures or builds it.
@@ -37,23 +37,15 @@ git_root="$(cd "$git_root" && pwd -P)"
     exit 1
 }
 
-revision="$(git -C "$ROOT" rev-parse HEAD)"
-version="$("$BIN" --version)"
-[[ "$version" == "murb revision=$revision dirty=0 "* ]] || {
-    echo "Executable is stale or was built from dirty sources: $version" >&2
-    exit 1
-}
-git -C "$ROOT" diff --quiet HEAD -- || {
-    echo "Tracked sources changed after the build; rebuild before submitting." >&2
-    exit 1
-}
-[[ "$version" == *" cuda=1 "* ]] || {
-    echo "A CUDA-enabled build-leonardo/bin/murb is required: $version" >&2
+source "$ROOT/scripts/provenance.sh"
+murb_check_provenance "$ROOT" "$BIN"
+[[ "$MURB_EXECUTABLE_VERSION" == *" cuda=1 "* ]] || {
+    echo "A CUDA-enabled build-leonardo/bin/murb is required: $MURB_EXECUTABLE_VERSION" >&2
     exit 1
 }
 
 N="${MURB_N:-10000}"
-ITERS="${MURB_ITERS:-300}"
+ITERS="${MURB_ITERS:-720}"
 WARMUP="${MURB_WARMUP:-3}"
 DT="${MURB_DT:-3600}"
 RECORD_EVERY="${MURB_RECORD_EVERY:-2}"
@@ -83,20 +75,7 @@ awk -v value="$DT" 'BEGIN {
     exit 1
 }
 
-if [[ -n "${MURB_OUTPUT:-}" ]]; then
-    output_requested="$MURB_OUTPUT"
-else
-    default_base=""
-    if [[ -n "${SCRATCH:-}" && -d "$SCRATCH" ]]; then
-        default_base="$SCRATCH"
-    elif [[ -n "${WORK:-}" && -d "$WORK" ]]; then
-        default_base="$WORK"
-    else
-        echo "Neither SCRATCH nor WORK is available; set MURB_OUTPUT to an absolute .murbtraj path." >&2
-        exit 1
-    fi
-    output_requested="$default_base/murb-trajectories/a100-galaxy-${SLURM_JOB_ID}.murbtraj"
-fi
+output_requested="${MURB_OUTPUT:-/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj}"
 
 [[ "$output_requested" == /* && "$output_requested" == *.murbtraj ]] || {
     echo "MURB_OUTPUT must be an absolute path ending in .murbtraj: $output_requested" >&2
@@ -115,6 +94,7 @@ case "$OUTPUT" in
 esac
 [[ ! -e "$OUTPUT" ]] || {
     echo "Refusing to overwrite existing trajectory: $OUTPUT" >&2
+    echo "Move or delete the previous file, or supply a different MURB_OUTPUT." >&2
     exit 1
 }
 
@@ -134,7 +114,7 @@ expected_frames=$((ITERS / RECORD_EVERY))
 
 echo "SLURM job ID: $SLURM_JOB_ID"
 echo "Hostname: $(hostname)"
-echo "Executable revision: $revision"
+echo "Git SHA: $MURB_GIT_REVISION"
 echo "GPU model: ${gpu_models[0]}"
 echo "Visible GPU count: $gpu_count"
 echo "N: $N"
@@ -144,7 +124,6 @@ echo "Timestep: $DT"
 echo "Recording stride: $RECORD_EVERY"
 echo "Expected frame count: $expected_frames"
 echo "Output path: $OUTPUT"
-echo "$version"
 
 export OMP_NUM_THREADS=1
 export OMP_DYNAMIC=FALSE

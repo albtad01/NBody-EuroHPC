@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
 #SBATCH --time=00:10:00
-#SBATCH --output=nbody_gpu_%j.out
-#SBATCH --error=nbody_gpu_%j.err
+#SBATCH --output=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_gpu_%j.out
+#SBATCH --error=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/log/nbody_gpu_%j.err
 
 # Prebuilt Phase 1 benchmark. Account may be overridden with sbatch --account.
 set -euo pipefail
@@ -25,18 +25,9 @@ BIN="$BUILD/bin/murb"
     echo "Missing executable or successful build stamp: $BUILD. Build before submitting." >&2
     exit 1
 }
-revision="$(git -C "$ROOT" rev-parse HEAD)"
-version="$("$BIN" --version)"
-[[ "$version" == "murb revision=$revision dirty=0 "* ]] || {
-    echo "Executable is stale or was built from dirty sources: $version" >&2
-    exit 1
-}
-git -C "$ROOT" diff --quiet HEAD -- || {
-    echo "Tracked sources changed after the build; rebuild before submitting." >&2
-    exit 1
-}
-[[ "$version" == *" cuda=1 "* ]] || { echo "CUDA build required" >&2; exit 1; }
-echo "$version"
+source "$ROOT/scripts/provenance.sh"
+murb_check_provenance "$ROOT" "$BIN"
+[[ "$MURB_EXECUTABLE_VERSION" == *" cuda=1 "* ]] || { echo "CUDA build required" >&2; exit 1; }
 echo "job=${SLURM_JOB_ID:-unknown} node=$(hostname) executable=$BIN"
 export OMP_NUM_THREADS=1
 export OMP_DYNAMIC=FALSE
