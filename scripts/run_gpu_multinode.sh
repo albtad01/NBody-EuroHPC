@@ -81,7 +81,7 @@ awk -v value="$DT" 'BEGIN {
 record_args=()
 OUTPUT=""
 if [[ -n "${MURB_OUTPUT:-}" ]]; then
-    # Canonical demo output: /leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj
+    # Canonical directory: /leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/trajectories/
     [[ "$MURB_OUTPUT" == /* && "$MURB_OUTPUT" == *.murbtraj ]] || {
         echo "MURB_OUTPUT must be an absolute path ending in .murbtraj" >&2
         exit 1
@@ -91,12 +91,6 @@ if [[ -n "${MURB_OUTPUT:-}" ]]; then
     mkdir -p "$output_directory"
     output_directory="$(cd "$output_directory" && pwd -P)"
     OUTPUT="$output_directory/$output_name"
-    case "$OUTPUT" in
-        "$ROOT"|"$ROOT"/*)
-            echo "Trajectory output must be outside the Git worktree: $OUTPUT" >&2
-            exit 1
-            ;;
-    esac
     [[ ! -e "$OUTPUT" ]] || {
         echo "Refusing to overwrite existing trajectory: $OUTPUT" >&2
         exit 1

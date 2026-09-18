@@ -35,6 +35,7 @@ Additional exploratory single-node implementations are `cpu+optim`,
 ├── CMakePresets.json          # Build presets
 ├── assets/                    # Demo media
 ├── log/                       # Ignored SLURM stdout/stderr (except .gitkeep)
+├── trajectories/              # Ignored generated .murbtraj files (except .gitkeep)
 ├── lib/                       # Bundled Catch2 and MIPP dependencies
 ├── scripts/                   # Leonardo SLURM jobs and utilities
 ├── src/
@@ -178,8 +179,12 @@ Generate a trajectory on one A100 with the dedicated recording job:
 sbatch scripts/run_gpu_record.sh
 ```
 
-By default it writes the output file
-`/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj`, outside the worktree.
+By default it writes under
+`/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/trajectories/`. The generated
+filename records the backend, scheme, N, iteration count, timestep, recording
+stride, UTC timestamp, and Slurm job ID, for example:
+`gpu-galaxy-N10000-I720-W3-dt3600-every2-20260918T113000Z-job123456.murbtraj`.
+Generated files under `trajectories/` are ignored by Git.
 The job refuses to overwrite an existing trajectory; move or delete the old
 file, or set `MURB_OUTPUT` to another absolute `.murbtraj` path.
 
@@ -198,7 +203,7 @@ sbatch scripts/run_gpu_record.sh
 To record a four-A100 run, provide an absolute output path to the four-GPU job:
 
 ```bash
-MURB_OUTPUT=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj \
+MURB_OUTPUT=/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC/trajectories/gpu-multinode-galaxy-N10000-I720-20260918.murbtraj \
   sbatch scripts/run_gpu_multinode.sh
 ```
 

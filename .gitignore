@@ -6,6 +6,8 @@ power_tracking_*
 build-*/
 /log/*
 !/log/.gitkeep
+/trajectories/*
+!/trajectories/.gitkeep
 # Legacy paths still used by profiling/energy utilities.
 /logs/
 /scripts/logs/

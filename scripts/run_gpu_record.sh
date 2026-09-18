@@ -75,7 +75,12 @@ awk -v value="$DT" 'BEGIN {
     exit 1
 }
 
-output_requested="${MURB_OUTPUT:-/leonardo_work/EUHPC_TDEMO_26/NBody-EuroHPC.murbtraj}"
+if [[ -n "${MURB_OUTPUT:-}" ]]; then
+    output_requested="$MURB_OUTPUT"
+else
+    run_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    output_requested="$ROOT/trajectories/gpu-galaxy-N${N}-I${ITERS}-W${WARMUP}-dt${DT}-every${RECORD_EVERY}-${run_timestamp}-job${SLURM_JOB_ID}.murbtraj"
+fi
 
 [[ "$output_requested" == /* && "$output_requested" == *.murbtraj ]] || {
     echo "MURB_OUTPUT must be an absolute path ending in .murbtraj: $output_requested" >&2
@@ -86,12 +91,6 @@ output_name="$(basename -- "$output_requested")"
 mkdir -p "$output_directory"
 output_directory="$(cd "$output_directory" && pwd -P)"
 OUTPUT="$output_directory/$output_name"
-case "$OUTPUT" in
-    "$ROOT"|"$ROOT"/*)
-        echo "Trajectory output must be outside the Git worktree: $OUTPUT" >&2
-        exit 1
-        ;;
-esac
 [[ ! -e "$OUTPUT" ]] || {
     echo "Refusing to overwrite existing trajectory: $OUTPUT" >&2
     echo "Move or delete the previous file, or supply a different MURB_OUTPUT." >&2
